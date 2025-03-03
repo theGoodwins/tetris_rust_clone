@@ -75,12 +75,13 @@ impl MusicManager {
         let source = Decoder::new(file).unwrap().repeat_infinite();
         // Append the source into the buffer
         self.mus_sink.append(source);
+        self.mus_sink.set_volume(0.5);
         self.mus_sink.play();
     }
 
     pub fn mute(&mut self){
         if self.muted{
-            self.mus_sink.set_volume(1.0);
+            self.mus_sink.set_volume(0.5);
         }
         else{
             self.mus_sink.set_volume(0.0);
