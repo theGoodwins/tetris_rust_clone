@@ -5,7 +5,7 @@ use std::cmp::{min, max};
 use std::fs::File;
 use std::io::BufReader;
 use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink};
-use rodio::source::{Source};
+use rodio::source::Source;
 
 const GRID_WIDTH: usize = 10;
 const GRID_HEIGHT: usize = 20;
@@ -40,7 +40,7 @@ const MUSIC_LIST: [&str; 3] = [
     "resources/music/music-a.mp3",
     "resources/music/music-b.mp3",
 ];
-
+#[allow(dead_code)]
 struct MusicManager {
     mus_stream:OutputStream,
     mus_stream_hndl:OutputStreamHandle,
