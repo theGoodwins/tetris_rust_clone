@@ -98,6 +98,11 @@ impl MusicManager {
         }
         self.paused = !self.paused;
     }
+
+    pub fn reset(&mut self){
+        self.mus_sink.clear();
+        self.mus_track = 0;
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -608,9 +613,10 @@ impl GameState {
         self.update_square_effects(dt);
     }
 
-    pub fn draw(&self) {
+    pub fn draw(&mut self) {
         clear_background(BLACK_COLOR);
         if !self.started {
+            self.mus_mgr.reset();
             let msg = "Press SPACE to start";
             let measure = measure_text(msg, None, 40, 1.0);
             let x = (screen_width() - measure.width) / 2.0;
