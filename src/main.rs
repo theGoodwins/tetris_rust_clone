@@ -797,7 +797,7 @@ fn draw_preview(tetromino: &Tetromino, pos_x: f32, pos_y: f32, tile_size: f32) {
 #[macroquad::main("Tetris")]
 async fn main() {
     // Optionally, uncomment the following if you need to set the window size:
-    // request_new_screen_size(1000.0, 800.0);
+    request_new_screen_size(1410.0, 700.0);
     let mut game_state = GameState::new();
 
     loop {
