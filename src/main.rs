@@ -1,8 +1,10 @@
 use macroquad::prelude::*;
 use ::rand::{thread_rng, Rng};
 use std::cmp::{min, max};
+
 use std::collections::HashMap;
 use std::io::Cursor;
+
 use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink};
 use rodio::source::Source;
 
@@ -60,7 +62,7 @@ impl MusicManager {
         let (stream, stream_handle) = OutputStream::try_default().unwrap();
         let sink = Sink::try_new(&stream_handle).unwrap();
         MusicManager {
-            mus_stream:_stream,
+            mus_stream:stream,
             mus_stream_hndl:stream_handle,
             mus_sink:sink,
             mus_track:0,
