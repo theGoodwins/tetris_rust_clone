@@ -2,12 +2,20 @@ use macroquad::prelude::*;
 use ::rand::{thread_rng, Rng};
 use std::cmp::{min, max};
 use std::collections::HashMap;
-
-use std::fs::File;
-use std::io::BufReader;
+use std::io::Cursor;
 use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink};
 use rodio::source::Source;
 
+// -------------------------------------------------------------------
+// Audio assets embedded into the binary.
+const MUSIC_A_GB: &[u8] = include_bytes!("../resources/music/music-a-gb.mp3");
+const MUSIC_A: &[u8] = include_bytes!("../resources/music/music-a.mp3");
+const MUSIC_B: &[u8] = include_bytes!("../resources/music/music-b.mp3");
+
+const MUSIC_LIST: [&[u8]; 3] = [MUSIC_A_GB, MUSIC_A, MUSIC_B];
+
+// -------------------------------------------------------------------
+// Game constants
 const GRID_WIDTH: usize = 10;
 const GRID_HEIGHT: usize = 20;
 const TILE_SIZE: f32 = 30.0;
@@ -36,12 +44,7 @@ const NES_COLORS: [Color; 7] = [
     Color { r: 1.0,    g: 0.3334, b: 0.0,    a: 1.0 }, // L
 ];
 
-const MUSIC_LIST: [&str; 3] = [
-    "resources/music/music-a-gb.mp3",
-    "resources/music/music-a.mp3",
-    "resources/music/music-b.mp3",
-];
-
+// MusicManager modified to use embedded audio.
 #[allow(dead_code)]
 struct MusicManager {
     mus_stream:OutputStream,
@@ -54,7 +57,7 @@ struct MusicManager {
 
 impl MusicManager {
     fn new() -> Self {
-        let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+        let (stream, stream_handle) = OutputStream::try_default().unwrap();
         let sink = Sink::try_new(&stream_handle).unwrap();
         MusicManager {
             mus_stream:_stream,
@@ -66,16 +69,18 @@ impl MusicManager {
         }
     }
 
-    pub fn play_song(&mut self){
-        // Clear the current Sink's buffer
+    pub fn play_song(&mut self) {
+        // Clear the current sink's buffer.
         self.mus_sink.clear();
-        // Grab new sound file
-        let file = BufReader::new(File::open(MUSIC_LIST[(self.mus_track%(MUSIC_LIST.len() as u32)) as usize]).unwrap());
-        // Increase the index of track for next time we call this
+        // Determine the current track from the embedded MUSIC_LIST.
+        let track_index = (self.mus_track % MUSIC_LIST.len() as u32) as usize;
+        let track_data = MUSIC_LIST[track_index];
         self.mus_track += 1;
-        // Decode that sound file into a source
-        let source = Decoder::new(file).unwrap().repeat_infinite();
-        // Append the source into the buffer
+        // Create an in-memory cursor for the embedded audio data.
+        let cursor = Cursor::new(track_data);
+        // Decode the audio data and set it to repeat infinitely.
+        let source = Decoder::new(cursor).unwrap().repeat_infinite();
+        // Append the source into the sink and set volume.
         self.mus_sink.append(source);
         self.mus_sink.set_volume(0.5);
         self.mus_sink.play();
@@ -107,6 +112,7 @@ impl MusicManager {
     }
 }
 
+// Tetromino definitions and game structures.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum TetrominoType {
     I, O, T, S, Z, J, L,
