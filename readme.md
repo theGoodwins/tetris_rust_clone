@@ -12,10 +12,18 @@ A simple Tetris clone implemented in Rust. This project demonstrates basic game 
 
 ## Requirements
 
-- Rust (latest stable version recommended)
-- Cargo (Rust's package manager)
+To use this project, ensure you have the following installed:
 
-## Installation
+- **Rust** (latest stable version recommended)
+- **Cargo** (Rust's package manager)
+
+### Installation
+
+Follow the official Rust and Cargo installation guide:
+
+📖 [Rust and Cargo Installation Docs](https://doc.rust-lang.org/cargo/getting-started/installation.html)
+
+## Tetris Installation
 
 1. Clone the repository:
 
@@ -38,12 +46,23 @@ A simple Tetris clone implemented in Rust. This project demonstrates basic game 
 
 ## Controls
 
-- **Arrow Left/Right**: Move block left or right
-- **Arrow Down**: Soft drop
-- **Space**: Hard drop
-- **Up Arrow**: Rotate block
-- **P**: Pause game
-- **Q**: Quit game
+## Key Bindings and Their Functions
+
+| Key           | Function                                                        |
+|--------------|------------------------------------------------------------------|
+| ⬅ Left Arrow  | Move the tetromino left.                                       |
+| ➡ Right Arrow | Move the tetromino right.                                      |
+| ⬆ Up Arrow    | Hard drop (instantly drops the piece to the lowest position).  |
+| ⬇ Down Arrow  | Soft drop (accelerates fall speed while held).                 |
+| Z            | Rotate the tetromino counterclockwise.                          |
+| X            | Rotate the tetromino clockwise.                                 |
+| C            | Hold piece (swap the current tetromino with the hold slot).     |
+| Enter        | Pause/Resume the game.                                          |
+| Space        | Start a new game (when not running).                            |
+| N            | Change song (cycle through embedded MP3s).                      |
+| M            | Mute/unmute music.                                              |
+
+
 
 ## Dependencies
 
