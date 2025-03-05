@@ -62,14 +62,13 @@ Follow the official Rust and Cargo installation guide:
 | N            | Change song (cycle through embedded MP3s).                      |
 | M            | Mute/unmute music.                                              |
 
-
-
 ## Dependencies
 
 This project uses the following Rust crates:
 
-- `sdl2` for graphics and input handling
+- `macroquad` game development library for creating 2D games
 - `rand` for randomizing Tetrimino pieces
+- `rodio` for playing audio files and streams
 
 ## Contributing
 
