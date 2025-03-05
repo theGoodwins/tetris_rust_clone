@@ -196,6 +196,7 @@ struct GameState {
 
     started: bool,
     paused: bool,
+    in_panic: bool,
     game_over: bool,
     lines_cleared: u32,
     score: u32,
@@ -241,6 +242,7 @@ impl GameState {
             hold_used: false,
             started: false,
             paused: false,
+            in_panic: false,
             game_over: false,
             lines_cleared: 0,
             score: 0,
@@ -260,6 +262,7 @@ impl GameState {
         self.started = true;
         self.game_over = false;
         self.paused = false;
+        self.in_panic = false;
         self.lines_cleared = 0;
         self.score = 0;
         self.board = [[None; GRID_WIDTH]; GRID_HEIGHT];
@@ -643,6 +646,12 @@ impl GameState {
         }
     }
 
+    pub fn check_for_fullness(&mut self) -> u32 {
+        //In Tetris DX panic mode starts when pieces are placed on line 12/18
+        //We should do the same
+        return 0;
+    }
+
     pub fn update(&mut self) {
         let dt = get_frame_time();
         if !self.game_over && is_key_pressed(KeyCode::Enter) {
@@ -674,6 +683,12 @@ impl GameState {
             }
         }
         self.update_square_effects(dt);
+        if self.check_for_fullness() >= 12{
+            self.in_panic = true;
+        }
+        else{
+            self.in_panic = false;
+        }
     }
 
     pub fn draw(&mut self) {
