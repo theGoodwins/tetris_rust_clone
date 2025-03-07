@@ -107,28 +107,25 @@ impl MusicManager {
         }
     }
 
-
     pub fn mute(&mut self){
         if self.muted{
             self.mus_sink.set_volume(0.5);
-        }
-        else{
+        } else {
             self.mus_sink.set_volume(0.0);
         }
         self.muted = !self.muted;
     }
 
-    pub fn pause(&mut self){
-        if self.paused{
+    pub fn pause(&mut self) {
+        if self.paused {
             self.mus_sink.play();
-        }
-        else{
+        } else {
             self.mus_sink.pause();
         }
         self.paused = !self.paused;
     }
 
-    pub fn reset(&mut self){
+    pub fn reset(&mut self) {
         self.mus_sink.clear();
         self.mus_sink.set_speed(1.0);
         self.mus_track = 0;
@@ -507,6 +504,20 @@ impl GameState {
                 if self.active_squares.iter().any(|eff| eff.x == x && eff.y == y) {
                     continue;
                 }
+                
+                let bonus_type = if all_same {
+                    TetrominoType::BonusGold
+                } else {
+                    TetrominoType::BonusSilver
+                };
+                let square_color = if all_same { GOLD_COLOR } else { SILVER_COLOR };
+                for dy in 0..4 {
+                    for dx in 0..4 {
+                        self.board[y + dy][x + dx] = Some((square_color, bonus_type, 0));
+                    }
+                }
+                
+                // Then add the square effect for the blinking visuals.
                 self.active_squares.push(SquareEffect {
                     x,
                     y,
@@ -531,17 +542,7 @@ impl GameState {
                 }
             }
             if eff.blinks_remaining == 0 {
-                let bonus_type = if eff.is_gold {
-                    TetrominoType::BonusGold
-                } else {
-                    TetrominoType::BonusSilver
-                };
-                let square_color = if eff.is_gold { GOLD_COLOR } else { SILVER_COLOR };
-                for dy in 0..4 {
-                    for dx in 0..4 {
-                        self.board[eff.y + dy][eff.x + dx] = Some((square_color, bonus_type, 0));
-                    }
-                }
+                // When blinking completes, the bonus cells are already locked in.
                 self.score += if eff.is_gold { GOLD_POINTS } else { SILVER_POINTS };
                 false
             } else {
