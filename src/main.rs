@@ -15,7 +15,7 @@ const MUSIC_A: &[u8] = include_bytes!("../resources/music/music-a.mp3");
 const MUSIC_B: &[u8] = include_bytes!("../resources/music/music-b.mp3");
 
 //Music list now contains a tuple of song as bytes and the panic mode speed factor. This is not a set variable cause some songs sound better at different factors.
-const MUSIC_LIST: [(&[u8],f32); 3] = [(MUSIC_A_GB,1.25), (MUSIC_A,1.5), (MUSIC_B,1.5)];
+const MUSIC_LIST: [(&[u8],f32); 3] = [(MUSIC_A_GB,1.5), (MUSIC_A,2.0), (MUSIC_B,1.25)];
 
 // -------------------------------------------------------------------
 // Game constants
@@ -56,6 +56,7 @@ struct MusicManager {
     mus_track:u32,
     muted:bool,
     paused:bool,
+    panic:bool,
 }
 
 impl MusicManager {
@@ -69,6 +70,7 @@ impl MusicManager {
             mus_track:0,
             muted:false,
             paused:false,
+            panic:false,
         }
     }
 
@@ -78,7 +80,6 @@ impl MusicManager {
         // Determine the current track from the embedded MUSIC_LIST.
         let track_index = (self.mus_track % MUSIC_LIST.len() as u32) as usize;
         let track_data = MUSIC_LIST[track_index].0;
-        self.mus_track += 1;
         // Create an in-memory cursor for the embedded audio data.
         let cursor = Cursor::new(track_data);
         // Decode the audio data and set it to repeat infinitely.
@@ -87,7 +88,25 @@ impl MusicManager {
         self.mus_sink.append(source);
         self.mus_sink.set_volume(0.5);
         self.mus_sink.play();
+        //check if in panic. set speed accordingly.
+        if self.panic { 
+            self.mus_sink.set_speed(MUSIC_LIST[track_index].1);
+        }
+        //iterate the track
+        self.mus_track += 1;
     }
+
+    pub fn toggle_panic(&mut self){
+        self.panic = !self.panic;
+        let track_index = (self.mus_track-1 % MUSIC_LIST.len() as u32) as usize;
+        if self.panic { 
+            self.mus_sink.set_speed(MUSIC_LIST[track_index].1);
+        }
+        else{
+            self.mus_sink.set_speed(1.0);
+        }
+    }
+
 
     pub fn mute(&mut self){
         if self.muted{
@@ -112,6 +131,7 @@ impl MusicManager {
     pub fn reset(&mut self){
         self.mus_sink.clear();
         self.mus_track = 0;
+        self.panic = false;
     }
 }
 
@@ -650,7 +670,7 @@ impl GameState {
     pub fn check_for_fullness(&mut self) -> u32 {
         //In Tetris DX panic mode starts when pieces are placed on line 12/18
         //We should do the same
-        return 0;
+        return 12;
     }
 
     pub fn update(&mut self) {
@@ -684,11 +704,16 @@ impl GameState {
             }
         }
         self.update_square_effects(dt);
-        if self.check_for_fullness() >= 12{
+        if self.check_for_fullness() >= 12 && self.in_panic != true{
             self.in_panic = true;
+            self.mus_mgr.toggle_panic();
+        }
+        else if self.check_for_fullness() < 12 && self.in_panic == true{
+            self.in_panic = false;
+            self.mus_mgr.toggle_panic();
         }
         else{
-            self.in_panic = false;
+            return;
         }
     }
 
