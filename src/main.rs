@@ -670,16 +670,17 @@ impl GameState {
     }
 
     pub fn check_for_fullness(&mut self) -> u32 {
-        let mut y_max: u32 = 0;
-        for y in 0..(GRID_HEIGHT) {
-            for x in 0..(GRID_WIDTH) {
-                if self.board[y][x]!= None{
-                    y_max = y as u32;
+        let mut y_min: u32 = 20;
+        for y in 0..GRID_HEIGHT {
+            for x in 0..GRID_WIDTH {
+                if let Some((_color, _t, _id)) = self.board[y][x] {
+                    if (y as u32) < y_min{
+                        y_min = y as u32;
+                    }
                 }
             }
         }
-        print!("{}",y_max);
-        return y_max;
+        return 20-y_min;
     }
 
     pub fn update(&mut self) {
@@ -713,11 +714,12 @@ impl GameState {
             }
         }
         self.update_square_effects(dt);
-        if self.check_for_fullness() >= 12 && !self.in_panic{
+        let fullness: u32 = self.check_for_fullness();
+        if fullness >= 12 && !self.in_panic{
             self.in_panic = true;
             self.mus_mgr.toggle_panic();
         }
-        else if self.check_for_fullness() < 12 && self.in_panic{
+        else if fullness < 12 && self.in_panic{
             self.in_panic = false;
             self.mus_mgr.toggle_panic();
         }
