@@ -99,7 +99,7 @@ impl MusicManager {
     pub fn toggle_panic(&mut self){
         self.panic = !self.panic;
         let track_index = (self.mus_track-1 % MUSIC_LIST.len() as u32) as usize;
-        if self.panic { 
+        if self.panic {
             self.mus_sink.set_speed(MUSIC_LIST[track_index].1);
         }
         else{
@@ -130,6 +130,7 @@ impl MusicManager {
 
     pub fn reset(&mut self){
         self.mus_sink.clear();
+        self.mus_sink.set_speed(1.0);
         self.mus_track = 0;
         self.panic = false;
     }
@@ -333,6 +334,7 @@ impl GameState {
         *self.piece_statistics.entry(curr_type).or_insert(0) += 1;
 
         self.next_tetromino = Some(Tetromino::new(next_type));
+        self.mus_mgr.reset();
         self.mus_mgr.play_song();
     }
 
@@ -668,9 +670,16 @@ impl GameState {
     }
 
     pub fn check_for_fullness(&mut self) -> u32 {
-        //In Tetris DX panic mode starts when pieces are placed on line 12/18
-        //We should do the same
-        return 12;
+        let mut y_max: u32 = 0;
+        for y in 0..(GRID_HEIGHT) {
+            for x in 0..(GRID_WIDTH) {
+                if self.board[y][x]!= None{
+                    y_max = y as u32;
+                }
+            }
+        }
+        print!("{}",y_max);
+        return y_max;
     }
 
     pub fn update(&mut self) {
@@ -704,15 +713,18 @@ impl GameState {
             }
         }
         self.update_square_effects(dt);
-        if self.check_for_fullness() >= 12 && self.in_panic != true{
+        if self.check_for_fullness() >= 12 && !self.in_panic{
             self.in_panic = true;
             self.mus_mgr.toggle_panic();
         }
-        else if self.check_for_fullness() < 12 && self.in_panic == true{
+        else if self.check_for_fullness() < 12 && self.in_panic{
             self.in_panic = false;
             self.mus_mgr.toggle_panic();
         }
         else{
+            if self.mus_mgr.panic && !self.in_panic{
+                self.mus_mgr.toggle_panic();
+            }
             return;
         }
     }
