@@ -14,7 +14,8 @@ const MUSIC_A_GB: &[u8] = include_bytes!("../resources/music/music-a-gb.mp3");
 const MUSIC_A: &[u8] = include_bytes!("../resources/music/music-a.mp3");
 const MUSIC_B: &[u8] = include_bytes!("../resources/music/music-b.mp3");
 
-const MUSIC_LIST: [&[u8]; 3] = [MUSIC_A_GB, MUSIC_A, MUSIC_B];
+//Music list now contains a tuple of song as bytes and the panic mode speed factor. This is not a set variable cause some songs sound better at different factors.
+const MUSIC_LIST: [(&[u8],f32); 3] = [(MUSIC_A_GB,1.5), (MUSIC_A,2.0), (MUSIC_B,1.25)];
 
 // -------------------------------------------------------------------
 // Game constants
@@ -49,12 +50,13 @@ const NES_COLORS: [Color; 7] = [
 // MusicManager modified to use embedded audio.
 #[allow(dead_code)]
 struct MusicManager {
-    mus_stream: OutputStream,
-    mus_stream_hndl: OutputStreamHandle,
-    mus_sink: Sink,
-    mus_track: u32,
-    muted: bool,
-    paused: bool,
+    mus_stream:OutputStream,
+    mus_stream_hndl:OutputStreamHandle,
+    mus_sink:Sink,
+    mus_track:u32,
+    muted:bool,
+    paused:bool,
+    panic:bool,
 }
 
 impl MusicManager {
@@ -62,12 +64,13 @@ impl MusicManager {
         let (stream, stream_handle) = OutputStream::try_default().unwrap();
         let sink = Sink::try_new(&stream_handle).unwrap();
         MusicManager {
-            mus_stream: stream,
-            mus_stream_hndl: stream_handle,
-            mus_sink: sink,
-            mus_track: 0,
-            muted: false,
-            paused: false,
+            mus_stream:stream,
+            mus_stream_hndl:stream_handle,
+            mus_sink:sink,
+            mus_track:0,
+            muted:false,
+            paused:false,
+            panic:false,
         }
     }
 
@@ -76,8 +79,7 @@ impl MusicManager {
         self.mus_sink.clear();
         // Determine the current track from the embedded MUSIC_LIST.
         let track_index = (self.mus_track % MUSIC_LIST.len() as u32) as usize;
-        let track_data = MUSIC_LIST[track_index];
-        self.mus_track += 1;
+        let track_data = MUSIC_LIST[track_index].0;
         // Create an in-memory cursor for the embedded audio data.
         let cursor = Cursor::new(track_data);
         // Decode the audio data and set it to repeat infinitely.
@@ -86,10 +88,27 @@ impl MusicManager {
         self.mus_sink.append(source);
         self.mus_sink.set_volume(0.5);
         self.mus_sink.play();
+        //check if in panic. set speed accordingly.
+        if self.panic { 
+            self.mus_sink.set_speed(MUSIC_LIST[track_index].1);
+        }
+        //iterate the track
+        self.mus_track += 1;
     }
 
-    pub fn mute(&mut self) {
-        if self.muted {
+    pub fn toggle_panic(&mut self){
+        self.panic = !self.panic;
+        let track_index = (self.mus_track-1 % MUSIC_LIST.len() as u32) as usize;
+        if self.panic {
+            self.mus_sink.set_speed(MUSIC_LIST[track_index].1);
+        }
+        else{
+            self.mus_sink.set_speed(1.0);
+        }
+    }
+
+    pub fn mute(&mut self){
+        if self.muted{
             self.mus_sink.set_volume(0.5);
         } else {
             self.mus_sink.set_volume(0.0);
@@ -108,7 +127,9 @@ impl MusicManager {
 
     pub fn reset(&mut self) {
         self.mus_sink.clear();
+        self.mus_sink.set_speed(1.0);
         self.mus_track = 0;
+        self.panic = false;
     }
 }
 
@@ -194,6 +215,7 @@ struct GameState {
 
     started: bool,
     paused: bool,
+    in_panic: bool,
     game_over: bool,
     lines_cleared: u32,
     score: u32,
@@ -239,6 +261,7 @@ impl GameState {
             hold_used: false,
             started: false,
             paused: false,
+            in_panic: false,
             game_over: false,
             lines_cleared: 0,
             score: 0,
@@ -258,6 +281,7 @@ impl GameState {
         self.started = true;
         self.game_over = false;
         self.paused = false;
+        self.in_panic = false;
         self.lines_cleared = 0;
         self.score = 0;
         self.board = [[None; GRID_WIDTH]; GRID_HEIGHT];
@@ -307,6 +331,7 @@ impl GameState {
         *self.piece_statistics.entry(curr_type).or_insert(0) += 1;
 
         self.next_tetromino = Some(Tetromino::new(next_type));
+        self.mus_mgr.reset();
         self.mus_mgr.play_song();
     }
 
@@ -645,6 +670,20 @@ impl GameState {
         }
     }
 
+    pub fn check_for_fullness(&mut self) -> u32 {
+        let mut y_min: u32 = 20;
+        for y in 0..GRID_HEIGHT {
+            for x in 0..GRID_WIDTH {
+                if let Some((_color, _t, _id)) = self.board[y][x] {
+                    if (y as u32) < y_min{
+                        y_min = y as u32;
+                    }
+                }
+            }
+        }
+        return 20-y_min;
+    }
+
     pub fn update(&mut self) {
         let dt = get_frame_time();
         if !self.game_over && is_key_pressed(KeyCode::Enter) {
@@ -676,6 +715,21 @@ impl GameState {
             }
         }
         self.update_square_effects(dt);
+        let fullness: u32 = self.check_for_fullness();
+        if fullness >= 12 && !self.in_panic{
+            self.in_panic = true;
+            self.mus_mgr.toggle_panic();
+        }
+        else if fullness < 12 && self.in_panic{
+            self.in_panic = false;
+            self.mus_mgr.toggle_panic();
+        }
+        else{
+            if self.mus_mgr.panic && !self.in_panic{
+                self.mus_mgr.toggle_panic();
+            }
+            return;
+        }
     }
 
     pub fn draw(&mut self) {
