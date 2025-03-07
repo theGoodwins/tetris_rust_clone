@@ -8,6 +8,9 @@ use std::io::Cursor;
 use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink};
 use rodio::source::Source;
 
+mod menu; // Include the menu module
+use menu::{Difficulty, GameMode, MainMenu};
+
 // -------------------------------------------------------------------
 // Audio assets embedded into the binary.
 const MUSIC_A_GB: &[u8] = include_bytes!("../resources/music/music-a-gb.mp3");
@@ -111,24 +114,22 @@ impl MusicManager {
     pub fn mute(&mut self){
         if self.muted{
             self.mus_sink.set_volume(0.5);
-        }
-        else{
+        } else {
             self.mus_sink.set_volume(0.0);
         }
         self.muted = !self.muted;
     }
 
-    pub fn pause(&mut self){
-        if self.paused{
+    pub fn pause(&mut self) {
+        if self.paused {
             self.mus_sink.play();
-        }
-        else{
+        } else {
             self.mus_sink.pause();
         }
         self.paused = !self.paused;
     }
 
-    pub fn reset(&mut self){
+    pub fn reset(&mut self) {
         self.mus_sink.clear();
         self.mus_sink.set_speed(1.0);
         self.mus_track = 0;
@@ -238,6 +239,11 @@ struct GameState {
 
     // Statistics counter for spawned tetrominoes.
     piece_statistics: HashMap<TetrominoType, u32>,
+
+    // New settings fields:
+    player_name: String,
+    difficulty: Difficulty,
+    game_mode: GameMode,
 }
 
 impl GameState {
@@ -277,6 +283,9 @@ impl GameState {
             next_piece_id: 1,
             mus_mgr: MusicManager::new(),
             piece_statistics,
+            player_name: "Player".to_string(),
+            difficulty: Difficulty::Normal,
+            game_mode: GameMode::Classic,
         }
     }
 
@@ -700,7 +709,12 @@ impl GameState {
         }
         self.process_input(dt);
         if let Some(curr) = self.tetromino {
-            let speed = if is_key_down(KeyCode::Down) { SOFT_DROP_SPEED } else { FALL_SPEED };
+            let base_fall_speed = match self.difficulty {
+                Difficulty::Easy => 2.0,
+                Difficulty::Normal => 3.0,
+                Difficulty::Hard => 4.0,
+            };
+            let speed = if is_key_down(KeyCode::Down) { SOFT_DROP_SPEED } else { base_fall_speed };
             let fall_interval = 1.0 / speed;
             self.fall_timer += dt;
             if self.fall_timer >= fall_interval {
@@ -825,6 +839,18 @@ impl GameState {
             let x = offset_x + (board_w - measure.width) / 2.0;
             let y = offset_y + board_h / 2.0;
             draw_text(msg, x, y, 50.0, RED);
+
+            let score_text = format!("Final Score: {}", self.score);
+            let measure_score = measure_text(&score_text, None, 30, 1.0);
+            let sx = offset_x + (board_w - measure_score.width) / 2.0;
+            let sy = y + 60.0;
+            draw_text(&score_text, sx, sy, 30.0, WHITE);
+
+            let prompt = "Press Enter to return to menu";
+            let measure_prompt = measure_text(prompt, None, 30, 1.0);
+            let px = offset_x + (board_w - measure_prompt.width) / 2.0;
+            let py = sy + 40.0;
+            draw_text(prompt, px, py, 30.0, YELLOW);
         }
 
         // Pause overlay
@@ -835,9 +861,7 @@ impl GameState {
             draw_text(msg, (screen_width()-measure.width)/2.0, screen_height()/2.0, 50.0, YELLOW);
         }
 
-        // -- LEFT SIDE PANELS: Hold piece & Piece Stats --
-
-        // Draw "Hold" text and hold piece preview
+        // LEFT SIDE PANELS: Hold piece & Piece Stats.
         draw_text("Hold", 79.0, 55.0, 40.0, WHITE);
         if let Some(ref hold_piece) = self.hold_tetromino {
             draw_preview(hold_piece, 79.0, 90.0, PREVIEW_TILE_SIZE);
@@ -881,13 +905,13 @@ impl GameState {
             );
         }
 
-        // -- RIGHT SIDE: Next piece label & preview --
+        // RIGHT SIDE: Next piece label & preview.
         draw_text("Next", screen_width() - 210.0, 55.0, 40.0, WHITE);
         if let Some(ref next_piece) = self.next_tetromino {
             draw_preview(next_piece, screen_width() - 218.0, 70.0, PREVIEW_TILE_SIZE);
         }
 
-        // Controls text at the bottom
+        // Controls text.
         let controls_text = "\
 Controls:
  Left/Right: Move
@@ -896,7 +920,7 @@ Controls:
  Z/X: Rotate
  C: Hold
  Enter: Pause
- Space: Start
+ Space: Start (in game)
  N: Change Song
  M: Mute Music";
         let text_x = 20.0;
@@ -993,13 +1017,34 @@ fn draw_preview(tetromino: &Tetromino, pos_x: f32, pos_y: f32, tile_size: f32) {
 
 #[macroquad::main("Tetris")]
 async fn main() {
-    // Optionally, set the window size:
     request_new_screen_size(1410.0, 700.0);
+    let mut in_menu = true;
+    let mut main_menu = MainMenu::new();
     let mut game_state = GameState::new();
 
     loop {
-        if is_key_pressed(KeyCode::Space) && !game_state.started {
-            game_state.start_game();
+        clear_background(BLACK);
+        if in_menu {
+            if main_menu.update() {
+                // Apply menu settings to game state.
+                game_state = GameState::new();
+                game_state.player_name = main_menu.player_name.clone();
+                game_state.difficulty = main_menu.difficulty;
+                game_state.game_mode = main_menu.game_mode;
+                game_state.mus_mgr.mus_track = main_menu.music_index as u32;
+                game_state.start_game();
+                in_menu = false;
+            }
+            main_menu.draw();
+        } else {
+            game_state.update();
+            game_state.draw();
+            if game_state.game_over {
+                if is_key_pressed(KeyCode::Enter) {
+                    in_menu = true;
+                    main_menu = MainMenu::new();
+                }
+            }
         }
         game_state.update();
         game_state.draw();
