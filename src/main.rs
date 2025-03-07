@@ -14,8 +14,16 @@ const MUSIC_A_GB: &[u8] = include_bytes!("../resources/music/music-a-gb.mp3");
 const MUSIC_A: &[u8] = include_bytes!("../resources/music/music-a.mp3");
 const MUSIC_B: &[u8] = include_bytes!("../resources/music/music-b.mp3");
 
+const ROT: &[u8] = include_bytes!("../resources/sfx/rot.wav");
+const MOV: &[u8] = include_bytes!("../resources/sfx/mov.wav");
+const DROP: &[u8] = include_bytes!("../resources/sfx/drop.wav");
+const LOCK: &[u8] = include_bytes!("../resources/sfx/lock.wav");
+const PAUSE: &[u8] = include_bytes!("../resources/sfx/pause.wav");
+const LINE: &[u8] = include_bytes!("../resources/sfx/line.wav");
+
 //Music list now contains a tuple of song as bytes and the panic mode speed factor. This is not a set variable cause some songs sound better at different factors.
 const MUSIC_LIST: [(&[u8],f32); 3] = [(MUSIC_A_GB,1.5), (MUSIC_A,2.0), (MUSIC_B,1.25)];
+const SFX_LIST: [&[u8]; 6] = [ROT,MOV,DROP,LOCK,PAUSE,LINE];
 
 // -------------------------------------------------------------------
 // Game constants
@@ -54,6 +62,7 @@ struct MusicManager {
     mus_stream_hndl:OutputStreamHandle,
     mus_sink:Sink,
     mus_track:u32,
+    sfx_sinks:[Sink;4],
     muted:bool,
     paused:bool,
     panic:bool,
@@ -62,12 +71,14 @@ struct MusicManager {
 impl MusicManager {
     fn new() -> Self {
         let (stream, stream_handle) = OutputStream::try_default().unwrap();
-        let sink = Sink::try_new(&stream_handle).unwrap();
+        let mscsink = Sink::try_new(&stream_handle).unwrap();
+        let sfxsinks: [Sink; 4] = [Sink::try_new(&stream_handle).unwrap(),Sink::try_new(&stream_handle).unwrap(),Sink::try_new(&stream_handle).unwrap(),Sink::try_new(&stream_handle).unwrap()];
         MusicManager {
             mus_stream:stream,
             mus_stream_hndl:stream_handle,
-            mus_sink:sink,
+            mus_sink:mscsink,
             mus_track:0,
+            sfx_sinks:sfxsinks,
             muted:false,
             paused:false,
             panic:false,
@@ -86,7 +97,10 @@ impl MusicManager {
         let source = Decoder::new(cursor).unwrap().repeat_infinite();
         // Append the source into the sink and set volume.
         self.mus_sink.append(source);
-        self.mus_sink.set_volume(0.5);
+        // Check if muted, if not, play at half volume cause the tracks are kinda loud.
+        if !self.muted {
+            self.mus_sink.set_volume(0.5);
+        }
         self.mus_sink.play();
         //check if in panic. set speed accordingly.
         if self.panic { 
@@ -94,6 +108,25 @@ impl MusicManager {
         }
         //iterate the track
         self.mus_track += 1;
+    }
+
+    pub fn play_sfx(&mut self,sfx_id:u32) {
+        // Clear the current sink's buffer.
+        self.sfx_sinks[0].clear();
+        // Determine the current track from the embedded SFX_LIST.
+        let track_index = (sfx_id % SFX_LIST.len() as u32) as usize;
+        let track_data = SFX_LIST[track_index];
+        // Create an in-memory cursor for the embedded audio data.
+        let cursor = Cursor::new(track_data);
+        // Decode the audio data and set it to repeat infinitely.
+        let source = Decoder::new(cursor).unwrap();
+        // Append the source into the sink and set volume.
+        self.sfx_sinks[0].append(source);
+        // We might not need this for sfx?
+        if !self.muted {
+            self.sfx_sinks[0].set_volume(0.5);
+        }
+        self.sfx_sinks[0].play();
     }
 
     pub fn toggle_panic(&mut self){
@@ -110,8 +143,11 @@ impl MusicManager {
     pub fn mute(&mut self){
         if self.muted{
             self.mus_sink.set_volume(0.5);
-        } else {
+            self.sfx_sinks[0].set_volume(0.5);
+        }
+        else{
             self.mus_sink.set_volume(0.0);
+            self.sfx_sinks[0].set_volume(0.0);
         }
         self.muted = !self.muted;
     }
@@ -127,6 +163,7 @@ impl MusicManager {
 
     pub fn reset(&mut self) {
         self.mus_sink.clear();
+        self.sfx_sinks[0].clear();
         self.mus_sink.set_speed(1.0);
         self.mus_track = 0;
         self.panic = false;
@@ -374,6 +411,8 @@ impl GameState {
             self.spawn_new_tetromino();
             self.check_for_4x4_squares();
         }
+        //play lock sfx
+        self.mus_mgr.play_sfx(3);
     }
 
     pub fn clear_lines_delayed(&mut self) {
@@ -388,6 +427,8 @@ impl GameState {
         self.board = new_board.try_into().unwrap();
         self.lines_cleared += self.clearing_lines.len() as u32;
         self.clearing_lines.clear();
+        //Play line clear sfx.
+        self.mus_mgr.play_sfx(5);
 
         if let Some(next) = self.next_tetromino {
             if self.check_collision(&next.shape, next.pos) {
@@ -576,6 +617,8 @@ impl GameState {
         if is_key_pressed(KeyCode::Left) {
             if !self.check_collision(&curr.shape, (curr.pos.0 - 1, curr.pos.1)) {
                 self.move_tetromino((-1, 0));
+                //Play mov sfx.
+                self.mus_mgr.play_sfx(1);
                 self.left_timer = INITIAL_HORIZONTAL_DELAY;
             }
         } else if is_key_down(KeyCode::Left) {
@@ -583,6 +626,8 @@ impl GameState {
             if self.left_timer <= 0.0 {
                 if !self.check_collision(&curr.shape, (curr.pos.0 - 1, curr.pos.1)) {
                     self.move_tetromino((-1, 0));
+                    //Play mov sfx.
+                    self.mus_mgr.play_sfx(1);
                     self.left_timer = HORIZONTAL_REPEAT_DELAY;
                 }
             }
@@ -593,6 +638,8 @@ impl GameState {
         if is_key_pressed(KeyCode::Right) {
             if !self.check_collision(&curr.shape, (curr.pos.0 + 1, curr.pos.1)) {
                 self.move_tetromino((1, 0));
+                //Play mov sfx.
+                self.mus_mgr.play_sfx(1);
                 self.right_timer = INITIAL_HORIZONTAL_DELAY;
             }
         } else if is_key_down(KeyCode::Right) {
@@ -610,12 +657,16 @@ impl GameState {
         if is_key_pressed(KeyCode::Z) {
             let new_shape = rotate_shape(&curr.shape, curr.t_type, false);
             if !self.check_collision(&new_shape, curr.pos) {
+                //Play rot sfx.
+                self.mus_mgr.play_sfx(0);
                 self.set_tetromino_shape(new_shape);
             }
         }
         if is_key_pressed(KeyCode::X) {
             let new_shape = rotate_shape(&curr.shape, curr.t_type, true);
             if !self.check_collision(&new_shape, curr.pos) {
+                //Play rot sfx.
+                self.mus_mgr.play_sfx(0);
                 self.set_tetromino_shape(new_shape);
             }
         }
@@ -624,6 +675,8 @@ impl GameState {
             self.fall_timer = 0.0;
             if !self.check_collision(&curr.shape, (curr.pos.0, curr.pos.1 + 1)) {
                 self.move_tetromino((0, 1));
+                //Play drop sfx.
+                self.mus_mgr.play_sfx(2);
             }
         }
 
@@ -687,6 +740,10 @@ impl GameState {
     pub fn update(&mut self) {
         let dt = get_frame_time();
         if !self.game_over && is_key_pressed(KeyCode::Enter) {
+            //Play pause sfx only if game is being paused, not unpaused.
+            if !self.paused{
+                self.mus_mgr.play_sfx(4);
+            }
             self.paused = !self.paused;
             self.mus_mgr.pause();
         }
@@ -901,7 +958,7 @@ Controls:
  Enter: Pause
  Space: Start
  N: Change Song
- M: Mute Music";
+ M: Mute Music/SFX";
         let text_x = 20.0;
         let text_y = offset_y + board_h + 80.0;
         let wrapped = wrap_text(controls_text, screen_width() - 40.0, 24);
