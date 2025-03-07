@@ -14,7 +14,8 @@ const MUSIC_A_GB: &[u8] = include_bytes!("../resources/music/music-a-gb.mp3");
 const MUSIC_A: &[u8] = include_bytes!("../resources/music/music-a.mp3");
 const MUSIC_B: &[u8] = include_bytes!("../resources/music/music-b.mp3");
 
-const MUSIC_LIST: [&[u8]; 3] = [MUSIC_A_GB, MUSIC_A, MUSIC_B];
+//Music list now contains a tuple of song as bytes and the panic mode speed factor. This is not a set variable cause some songs sound better at different factors.
+const MUSIC_LIST: [(&[u8],f32); 3] = [(MUSIC_A_GB,1.25), (MUSIC_A,1.5), (MUSIC_B,1.5)];
 
 // -------------------------------------------------------------------
 // Game constants
@@ -76,7 +77,7 @@ impl MusicManager {
         self.mus_sink.clear();
         // Determine the current track from the embedded MUSIC_LIST.
         let track_index = (self.mus_track % MUSIC_LIST.len() as u32) as usize;
-        let track_data = MUSIC_LIST[track_index];
+        let track_data = MUSIC_LIST[track_index].0;
         self.mus_track += 1;
         // Create an in-memory cursor for the embedded audio data.
         let cursor = Cursor::new(track_data);
