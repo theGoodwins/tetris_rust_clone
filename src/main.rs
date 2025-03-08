@@ -1,32 +1,13 @@
+mod sound;
+mod tetromino;
+
 use macroquad::prelude::*;
-use ::rand::{thread_rng, Rng};
+use ::rand::{rng, Rng};
 use std::cmp::{min, max};
-
 use std::collections::HashMap;
-use std::io::Cursor;
+use sound::MusicManager;
+use tetromino::{Tetromino, TetrominoType, rotate_shape, TETROMINO_SHAPES};
 
-use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink};
-use rodio::source::Source;
-
-// -------------------------------------------------------------------
-// Audio assets embedded into the binary.
-const MUSIC_A_GB: &[u8] = include_bytes!("../resources/music/music-a-gb.mp3");
-const MUSIC_A: &[u8] = include_bytes!("../resources/music/music-a.mp3");
-const MUSIC_B: &[u8] = include_bytes!("../resources/music/music-b.mp3");
-
-const ROT: &[u8] = include_bytes!("../resources/sfx/rot.wav");
-const MOV: &[u8] = include_bytes!("../resources/sfx/mov.wav");
-const DROP: &[u8] = include_bytes!("../resources/sfx/drop.wav");
-const LOCK: &[u8] = include_bytes!("../resources/sfx/lock.wav");
-const PAUSE: &[u8] = include_bytes!("../resources/sfx/pause.wav");
-const LINE: &[u8] = include_bytes!("../resources/sfx/line.wav");
-
-//Music list now contains a tuple of song as bytes and the panic mode speed factor. This is not a set variable cause some songs sound better at different factors.
-const MUSIC_LIST: [(&[u8],f32); 3] = [(MUSIC_A_GB,1.5), (MUSIC_A,2.0), (MUSIC_B,1.25)];
-const SFX_LIST: [&[u8]; 6] = [ROT,MOV,DROP,LOCK,PAUSE,LINE];
-
-// -------------------------------------------------------------------
-// Game constants
 const GRID_WIDTH: usize = 10;
 const GRID_HEIGHT: usize = 20;
 const TILE_SIZE: f32 = 30.0;
@@ -45,193 +26,14 @@ const SILVER_COLOR: Color = Color::new(0.75, 0.75, 0.75, 1.0);
 const GOLD_POINTS: u32 = 500;
 const SILVER_POINTS: u32 = 200;
 
-const NES_COLORS: [Color; 7] = [
-    Color { r: 0.0,    g: 1.0,    b: 1.0,    a: 1.0 }, // I
-    Color { r: 1.0,    g: 1.0,    b: 0.0,    a: 1.0 }, // O
-    Color { r: 0.6667, g: 0.0,    b: 1.0,    a: 1.0 }, // T
-    Color { r: 0.0,    g: 1.0,    b: 0.0,    a: 1.0 }, // S
-    Color { r: 1.0,    g: 0.0,    b: 0.0,    a: 1.0 }, // Z
-    Color { r: 0.0,    g: 0.0,    b: 1.0,    a: 1.0 }, // J
-    Color { r: 1.0,    g: 0.3334, b: 0.0,    a: 1.0 }, // L
-];
+// New scoring bonuses.
+const TETRIS_BONUS: u32 = 800;
+const FULL_BOARD_BONUS: u32 = 2000;
 
-// MusicManager modified to use embedded audio.
-#[allow(dead_code)]
-struct MusicManager {
-    mus_stream:OutputStream,
-    mus_stream_hndl:OutputStreamHandle,
-    mus_sink:Sink,
-    mus_track:u32,
-    sfx_sinks:[Sink;4],
-    muted:bool,
-    paused:bool,
-    panic:bool,
-}
-
-impl MusicManager {
-    fn new() -> Self {
-        let (stream, stream_handle) = OutputStream::try_default().unwrap();
-        let mscsink = Sink::try_new(&stream_handle).unwrap();
-        let sfxsinks: [Sink; 4] = [Sink::try_new(&stream_handle).unwrap(),Sink::try_new(&stream_handle).unwrap(),Sink::try_new(&stream_handle).unwrap(),Sink::try_new(&stream_handle).unwrap()];
-        MusicManager {
-            mus_stream:stream,
-            mus_stream_hndl:stream_handle,
-            mus_sink:mscsink,
-            mus_track:0,
-            sfx_sinks:sfxsinks,
-            muted:false,
-            paused:false,
-            panic:false,
-        }
-    }
-
-    pub fn play_song(&mut self) {
-        // Clear the current sink's buffer.
-        self.mus_sink.clear();
-        // Determine the current track from the embedded MUSIC_LIST.
-        let track_index = (self.mus_track % MUSIC_LIST.len() as u32) as usize;
-        let track_data = MUSIC_LIST[track_index].0;
-        // Create an in-memory cursor for the embedded audio data.
-        let cursor = Cursor::new(track_data);
-        // Decode the audio data and set it to repeat infinitely.
-        let source = Decoder::new(cursor).unwrap().repeat_infinite();
-        // Append the source into the sink and set volume.
-        self.mus_sink.append(source);
-        // Check if muted, if not, play at half volume cause the tracks are kinda loud.
-        if !self.muted {
-            self.mus_sink.set_volume(0.5);
-        }
-        self.mus_sink.play();
-        //check if in panic. set speed accordingly.
-        if self.panic { 
-            self.mus_sink.set_speed(MUSIC_LIST[track_index].1);
-        }
-        //iterate the track
-        self.mus_track += 1;
-    }
-
-    pub fn play_sfx(&mut self,sfx_id:u32) {
-        // Clear the current sink's buffer.
-        self.sfx_sinks[0].clear();
-        // Determine the current track from the embedded SFX_LIST.
-        let track_index = (sfx_id % SFX_LIST.len() as u32) as usize;
-        let track_data = SFX_LIST[track_index];
-        // Create an in-memory cursor for the embedded audio data.
-        let cursor = Cursor::new(track_data);
-        // Decode the audio data and set it to repeat infinitely.
-        let source = Decoder::new(cursor).unwrap();
-        // Append the source into the sink and set volume.
-        self.sfx_sinks[0].append(source);
-        // We might not need this for sfx?
-        if !self.muted {
-            self.sfx_sinks[0].set_volume(0.5);
-        }
-        self.sfx_sinks[0].play();
-    }
-
-    pub fn toggle_panic(&mut self){
-        self.panic = !self.panic;
-        let track_index = (self.mus_track-1 % MUSIC_LIST.len() as u32) as usize;
-        if self.panic {
-            self.mus_sink.set_speed(MUSIC_LIST[track_index].1);
-        }
-        else{
-            self.mus_sink.set_speed(1.0);
-        }
-    }
-
-    pub fn mute(&mut self){
-        if self.muted{
-            self.mus_sink.set_volume(0.5);
-            self.sfx_sinks[0].set_volume(0.5);
-        }
-        else{
-            self.mus_sink.set_volume(0.0);
-            self.sfx_sinks[0].set_volume(0.0);
-        }
-        self.muted = !self.muted;
-    }
-
-    pub fn pause(&mut self) {
-        if self.paused {
-            self.mus_sink.play();
-        } else {
-            self.mus_sink.pause();
-        }
-        self.paused = !self.paused;
-    }
-
-    pub fn reset(&mut self) {
-        self.mus_sink.clear();
-        self.sfx_sinks[0].clear();
-        self.mus_sink.set_speed(1.0);
-        self.mus_track = 0;
-        self.panic = false;
-    }
-}
-
-// Tetromino definitions and game structures.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-enum TetrominoType {
-    I, O, T, S, Z, J, L,
-    BonusGold, BonusSilver, // For bonus blocks.
-}
-
-const TETROMINO_SHAPES: [[[i32; 2]; 4]; 7] = [
-    [[0,0],[1,0],[2,0],[3,0]],    // I
-    [[0,0],[1,0],[0,1],[1,1]],    // O
-    [[1,0],[0,1],[1,1],[2,1]],    // T
-    [[1,0],[2,0],[0,1],[1,1]],    // S
-    [[0,0],[1,0],[1,1],[2,1]],    // Z
-    [[0,0],[0,1],[1,1],[2,1]],    // J
-    [[0,0],[1,0],[2,0],[0,1]],    // L
-];
-
-const TETROMINO_ROTATION_OFFSETS: [[i32; 2]; 7] = [
-    [1,0], // I
-    [0,0], // O (doesn't rotate)
-    [1,1], // T
-    [1,1], // S
-    [1,1], // Z
-    [1,1], // J
-    [1,1], // L
-];
+// -------------------------------------------------------------------
+// The remaining game logic
 
 #[derive(Clone, Copy)]
-struct Tetromino {
-    shape: [[i32; 2]; 4],
-    pos: (i32, i32),
-    color: Color,
-    t_type: TetrominoType,
-}
-
-impl Tetromino {
-    fn new(t_type: TetrominoType) -> Self {
-        Tetromino {
-            shape: TETROMINO_SHAPES[t_type as usize],
-            pos: (GRID_WIDTH as i32 / 2 - 2, 0),
-            color: NES_COLORS[t_type as usize],
-            t_type,
-        }
-    }
-}
-
-fn rotate_shape(shape: &[[i32; 2]; 4], t_type: TetrominoType, clockwise: bool) -> [[i32; 2]; 4] {
-    let mut new_shape = [[0; 2]; 4];
-    let [pivot_x, pivot_y] = TETROMINO_ROTATION_OFFSETS[t_type as usize];
-    for (i, &[x, y]) in shape.iter().enumerate() {
-        let rel_x = x - pivot_x;
-        let rel_y = y - pivot_y;
-        let (nx, ny) = if clockwise {
-            (pivot_x + rel_y, pivot_y - rel_x)
-        } else {
-            (pivot_x - rel_y, pivot_y + rel_x)
-        };
-        new_shape[i] = [nx, ny];
-    }
-    new_shape
-}
-
 struct SquareEffect {
     x: usize,
     y: usize,
@@ -272,12 +74,14 @@ struct GameState {
 
     // Statistics counter for spawned tetrominoes.
     piece_statistics: HashMap<TetrominoType, u32>,
+
+    // Pending bonus points from merged blocks; awarded when rows are cleared.
+    merge_bonus_pending: u32,
 }
 
 impl GameState {
     pub fn new() -> Self {
         let mut piece_statistics = HashMap::new();
-        // Initialize counter for the main tetromino types.
         for &piece in &[
             TetrominoType::I,
             TetrominoType::O,
@@ -311,6 +115,7 @@ impl GameState {
             next_piece_id: 1,
             mus_mgr: MusicManager::new(),
             piece_statistics,
+            merge_bonus_pending: 0,
         }
     }
 
@@ -328,8 +133,8 @@ impl GameState {
         self.clearing_lines.clear();
         self.active_squares.clear();
         self.next_piece_id = 1;
+        self.merge_bonus_pending = 0;
 
-        // Reset statistics at the start of a new game.
         self.piece_statistics.clear();
         for &piece in &[
             TetrominoType::I,
@@ -343,8 +148,8 @@ impl GameState {
             self.piece_statistics.insert(piece, 0);
         }
 
-        let mut rng = thread_rng();
-        let curr_type = match rng.gen_range(0..7) {
+        let mut rng = rng();
+        let curr_type = match rng.random_range(0..7) {
             0 => TetrominoType::I,
             1 => TetrominoType::O,
             2 => TetrominoType::T,
@@ -353,7 +158,7 @@ impl GameState {
             5 => TetrominoType::J,
             _ => TetrominoType::L,
         };
-        let next_type = match rng.gen_range(0..7) {
+        let next_type = match rng.random_range(0..7) {
             0 => TetrominoType::I,
             1 => TetrominoType::O,
             2 => TetrominoType::T,
@@ -364,28 +169,13 @@ impl GameState {
         };
 
         self.tetromino = Some(Tetromino::new(curr_type));
-        // Count the active tetromino spawn.
         *self.piece_statistics.entry(curr_type).or_insert(0) += 1;
-
         self.next_tetromino = Some(Tetromino::new(next_type));
         self.mus_mgr.reset();
         self.mus_mgr.play_song();
     }
 
-    pub fn check_collision(&self, shape: &[[i32; 2]; 4], pos: (i32, i32)) -> bool {
-        for &[dx, dy] in shape {
-            let x = pos.0 + dx;
-            let y = pos.1 + dy;
-            if x < 0 || x >= GRID_WIDTH as i32 || y < 0 || y >= GRID_HEIGHT as i32 {
-                return true;
-            }
-            if self.board[y as usize][x as usize].is_some() {
-                return true;
-            }
-        }
-        false
-    }
-
+    // When a piece lands, check for merges first and then full rows.
     pub fn lock_tetromino(&mut self) {
         if let Some(tetro) = self.tetromino {
             let id = self.next_piece_id;
@@ -398,9 +188,33 @@ impl GameState {
                 }
             }
         }
+        // Check for merge (4x4 fully filled area) first.
+        self.check_for_4x4_squares();
+
+        // Then check for full rows and accumulate bonus if merged blocks are present.
         let mut full_rows = Vec::new();
+        self.merge_bonus_pending = 0;
         for (i, row) in self.board.iter().enumerate() {
             if row.iter().all(|cell| cell.is_some()) {
+                if row.iter().any(|cell| {
+                    if let Some((_, t, _)) = cell {
+                        *t == TetrominoType::BonusGold || *t == TetrominoType::BonusSilver
+                    } else {
+                        false
+                    }
+                }) {
+                    if row.iter().any(|cell| {
+                        if let Some((_, t, _)) = cell {
+                            *t == TetrominoType::BonusGold
+                        } else {
+                            false
+                        }
+                    }) {
+                        self.merge_bonus_pending += GOLD_POINTS;
+                    } else {
+                        self.merge_bonus_pending += SILVER_POINTS;
+                    }
+                }
                 full_rows.push(i);
             }
         }
@@ -409,25 +223,37 @@ impl GameState {
             self.line_clear_timer = 0.27;
         } else {
             self.spawn_new_tetromino();
-            self.check_for_4x4_squares();
         }
-        //play lock sfx
         self.mus_mgr.play_sfx(3);
     }
 
     pub fn clear_lines_delayed(&mut self) {
         let mut new_board: Vec<[Option<(Color, TetrominoType, u32)>; GRID_WIDTH]> = Vec::new();
         for (i, row) in self.board.iter().enumerate() {
-            if self.clearing_lines.contains(&i) { continue; }
+            if self.clearing_lines.contains(&i) {
+                continue;
+            }
             new_board.push(*row);
         }
         while new_board.len() < GRID_HEIGHT {
             new_board.insert(0, [None; GRID_WIDTH]);
         }
         self.board = new_board.try_into().unwrap();
-        self.lines_cleared += self.clearing_lines.len() as u32;
+        let lines_cleared_now = self.clearing_lines.len() as u32;
+        self.lines_cleared += lines_cleared_now;
+
+        // Award Tetris bonus if exactly 4 lines are cleared simultaneously.
+        if lines_cleared_now == 4 {
+            self.score += TETRIS_BONUS;
+        }
+        // Award full board bonus if board is completely empty.
+        if self.board.iter().all(|row| row.iter().all(|cell| cell.is_none())) {
+            self.score += FULL_BOARD_BONUS;
+        }
+        // Award pending merge bonus points.
+        self.score += self.merge_bonus_pending;
+        self.merge_bonus_pending = 0;
         self.clearing_lines.clear();
-        //Play line clear sfx.
         self.mus_mgr.play_sfx(5);
 
         if let Some(next) = self.next_tetromino {
@@ -442,18 +268,18 @@ impl GameState {
     }
 
     pub fn spawn_new_tetromino(&mut self) {
-        if !self.started { return; }
+        if !self.started {
+            return;
+        }
         if let Some(next_t) = self.next_tetromino {
             if self.check_collision(&next_t.shape, next_t.pos) {
                 self.game_over = true;
                 self.started = false;
             } else {
                 self.tetromino = Some(next_t);
-                // Increment the statistics for the newly spawned tetromino.
                 *self.piece_statistics.entry(next_t.t_type).or_insert(0) += 1;
-
-                let mut rng = thread_rng();
-                let t_type = match rng.gen_range(0..7) {
+                let mut rng = rng();
+                let t_type = match rng.random_range(0..7) {
                     0 => TetrominoType::I,
                     1 => TetrominoType::O,
                     2 => TetrominoType::T,
@@ -469,9 +295,7 @@ impl GameState {
         }
     }
 
-    // --- Square Detection ---
-    // Only triggers when every cell in a 4x4 candidate is full (and not bonus) and for every piece present,
-    // all its locked cells lie entirely within the candidate.
+    // --- Merge Detection: Only complete tetrominoes (4 cells each) can form a merge block.
     pub fn check_for_4x4_squares(&mut self) {
         for y in 0..(GRID_HEIGHT - 3) {
             for x in 0..(GRID_WIDTH - 3) {
@@ -481,6 +305,7 @@ impl GameState {
                 for dy in 0..4 {
                     for dx in 0..4 {
                         if let Some(cell) = self.board[y + dy][x + dx] {
+                            // Do not merge bonus blocks.
                             if cell.1 == TetrominoType::BonusGold || cell.1 == TetrominoType::BonusSilver {
                                 all_filled = false;
                                 break;
@@ -508,6 +333,18 @@ impl GameState {
                 }
                 let mut candidate_valid = true;
                 for &pid in &pieces_in_region {
+                    // Ensure the tetromino with this id occupies exactly 4 cells.
+                    let count = self
+                        .board
+                        .iter()
+                        .flatten()
+                        .filter(|&&cell| cell.map(|(_, _, id)| id) == Some(pid))
+                        .count();
+                    if count != 4 {
+                        candidate_valid = false;
+                        break;
+                    }
+                    // Ensure all cells for this tetromino are inside the candidate area.
                     for row in 0..GRID_HEIGHT {
                         for col in 0..GRID_WIDTH {
                             if let Some((_col, _t, id)) = self.board[row][col] {
@@ -545,7 +382,6 @@ impl GameState {
                 if self.active_squares.iter().any(|eff| eff.x == x && eff.y == y) {
                     continue;
                 }
-                
                 let bonus_type = if all_same {
                     TetrominoType::BonusGold
                 } else {
@@ -557,8 +393,6 @@ impl GameState {
                         self.board[y + dy][x + dx] = Some((square_color, bonus_type, 0));
                     }
                 }
-                
-                // Then add the square effect for the blinking visuals.
                 self.active_squares.push(SquareEffect {
                     x,
                     y,
@@ -572,6 +406,7 @@ impl GameState {
         }
     }
 
+    // Update the blinking effect (visual only).
     pub fn update_square_effects(&mut self, dt: f32) {
         self.active_squares.retain_mut(|eff| {
             eff.timer -= dt;
@@ -582,28 +417,21 @@ impl GameState {
                     eff.blinks_remaining -= 1;
                 }
             }
-            if eff.blinks_remaining == 0 {
-                // When blinking completes, the bonus cells are already locked in.
-                self.score += if eff.is_gold { GOLD_POINTS } else { SILVER_POINTS };
-                false
-            } else {
-                true
-            }
+            eff.blinks_remaining > 0
         });
     }
 
     pub fn process_input(&mut self, delta: f32) {
-        // Hard Drop: We use a separate block to avoid mutable/immutable borrow conflict.
         if is_key_pressed(KeyCode::Up) {
             loop {
-                let can_move_down = {
-                    if let Some(ref t) = self.tetromino {
-                        !self.check_collision(&t.shape, (t.pos.0, t.pos.1 + 1))
-                    } else {
-                        false
-                    }
+                let can_move_down = if let Some(ref t) = self.tetromino {
+                    !self.check_collision(&t.shape, (t.pos.0, t.pos.1 + 1))
+                } else {
+                    false
                 };
-                if !can_move_down { break; }
+                if !can_move_down {
+                    break;
+                }
                 if let Some(t) = self.tetromino.as_mut() {
                     t.pos.1 += 1;
                 }
@@ -611,13 +439,10 @@ impl GameState {
             self.lock_tetromino();
             return;
         }
-
-        // For other inputs, we can use a local copy.
         let curr = self.tetromino.unwrap();
         if is_key_pressed(KeyCode::Left) {
             if !self.check_collision(&curr.shape, (curr.pos.0 - 1, curr.pos.1)) {
                 self.move_tetromino((-1, 0));
-                //Play mov sfx.
                 self.mus_mgr.play_sfx(1);
                 self.left_timer = INITIAL_HORIZONTAL_DELAY;
             }
@@ -626,7 +451,6 @@ impl GameState {
             if self.left_timer <= 0.0 {
                 if !self.check_collision(&curr.shape, (curr.pos.0 - 1, curr.pos.1)) {
                     self.move_tetromino((-1, 0));
-                    //Play mov sfx.
                     self.mus_mgr.play_sfx(1);
                     self.left_timer = HORIZONTAL_REPEAT_DELAY;
                 }
@@ -634,11 +458,9 @@ impl GameState {
         } else {
             self.left_timer = 0.0;
         }
-
         if is_key_pressed(KeyCode::Right) {
             if !self.check_collision(&curr.shape, (curr.pos.0 + 1, curr.pos.1)) {
                 self.move_tetromino((1, 0));
-                //Play mov sfx.
                 self.mus_mgr.play_sfx(1);
                 self.right_timer = INITIAL_HORIZONTAL_DELAY;
             }
@@ -653,11 +475,9 @@ impl GameState {
         } else {
             self.right_timer = 0.0;
         }
-
         if is_key_pressed(KeyCode::Z) {
             let new_shape = rotate_shape(&curr.shape, curr.t_type, false);
             if !self.check_collision(&new_shape, curr.pos) {
-                //Play rot sfx.
                 self.mus_mgr.play_sfx(0);
                 self.set_tetromino_shape(new_shape);
             }
@@ -665,29 +485,23 @@ impl GameState {
         if is_key_pressed(KeyCode::X) {
             let new_shape = rotate_shape(&curr.shape, curr.t_type, true);
             if !self.check_collision(&new_shape, curr.pos) {
-                //Play rot sfx.
                 self.mus_mgr.play_sfx(0);
                 self.set_tetromino_shape(new_shape);
             }
         }
-
         if is_key_down(KeyCode::Down) {
             self.fall_timer = 0.0;
             if !self.check_collision(&curr.shape, (curr.pos.0, curr.pos.1 + 1)) {
                 self.move_tetromino((0, 1));
-                //Play drop sfx.
                 self.mus_mgr.play_sfx(2);
             }
         }
-
         if is_key_pressed(KeyCode::M) {
             self.mus_mgr.mute();
         }
-
         if is_key_pressed(KeyCode::N) {
             self.mus_mgr.play_song();
         }
-
         if is_key_pressed(KeyCode::C) && !self.hold_used {
             self.hold_used = true;
             let mut current_piece = curr;
@@ -723,25 +537,38 @@ impl GameState {
         }
     }
 
+    pub fn check_collision(&self, shape: &[[i32; 2]; 4], pos: (i32, i32)) -> bool {
+        for &[dx, dy] in shape {
+            let x = pos.0 + dx;
+            let y = pos.1 + dy;
+            if x < 0 || x >= GRID_WIDTH as i32 || y < 0 || y >= GRID_HEIGHT as i32 {
+                return true;
+            }
+            if self.board[y as usize][x as usize].is_some() {
+                return true;
+            }
+        }
+        false
+    }
+
     pub fn check_for_fullness(&mut self) -> u32 {
         let mut y_min: u32 = 20;
         for y in 0..GRID_HEIGHT {
             for x in 0..GRID_WIDTH {
                 if let Some((_color, _t, _id)) = self.board[y][x] {
-                    if (y as u32) < y_min{
+                    if (y as u32) < y_min {
                         y_min = y as u32;
                     }
                 }
             }
         }
-        return 20-y_min;
+        20 - y_min
     }
 
     pub fn update(&mut self) {
         let dt = get_frame_time();
         if !self.game_over && is_key_pressed(KeyCode::Enter) {
-            //Play pause sfx only if game is being paused, not unpaused.
-            if !self.paused{
+            if !self.paused {
                 self.mus_mgr.play_sfx(4);
             }
             self.paused = !self.paused;
@@ -773,16 +600,14 @@ impl GameState {
         }
         self.update_square_effects(dt);
         let fullness: u32 = self.check_for_fullness();
-        if fullness >= 12 && !self.in_panic{
+        if fullness >= 12 && !self.in_panic {
             self.in_panic = true;
             self.mus_mgr.toggle_panic();
-        }
-        else if fullness < 12 && self.in_panic{
+        } else if fullness < 12 && self.in_panic {
             self.in_panic = false;
             self.mus_mgr.toggle_panic();
-        }
-        else{
-            if self.mus_mgr.panic && !self.in_panic{
+        } else {
+            if self.mus_mgr.panic && !self.in_panic {
                 self.mus_mgr.toggle_panic();
             }
             return;
@@ -889,15 +714,11 @@ impl GameState {
 
         // Pause overlay
         if self.paused {
-            draw_rectangle(0.0, 0.0, screen_width(), screen_height(), Color::new(0.0,0.0,0.0,0.6));
+            draw_rectangle(0.0, 0.0, screen_width(), screen_height(), Color::new(0.0, 0.0, 0.0, 0.6));
             let msg = "Paused";
             let measure = measure_text(msg, None, 50, 1.0);
-            draw_text(msg, (screen_width()-measure.width)/2.0, screen_height()/2.0, 50.0, YELLOW);
+            draw_text(msg, (screen_width() - measure.width) / 2.0, screen_height() / 2.0, 50.0, YELLOW);
         }
-
-        // -- LEFT SIDE PANELS: Hold piece & Piece Stats --
-
-        // Draw "Hold" text and hold piece preview
         draw_text("Hold", 79.0, 55.0, 40.0, WHITE);
         if let Some(ref hold_piece) = self.hold_tetromino {
             draw_preview(hold_piece, 79.0, 90.0, PREVIEW_TILE_SIZE);
@@ -921,24 +742,26 @@ impl GameState {
         // Each piece gets a small preview plus its count
         for (i, &piece_type) in stat_types.iter().enumerate() {
             let piece_y = stats_label_y + 40.0 + (i as f32 * 50.0);
-            // Create a dummy tetromino just for drawing its shape
             let t = Tetromino {
                 shape: TETROMINO_SHAPES[piece_type as usize],
                 pos: (0, 0),
-                color: NES_COLORS[piece_type as usize],
+                color: match piece_type {
+                    TetrominoType::I => Color { r: 0.0, g: 1.0, b: 1.0, a: 1.0 },
+                    TetrominoType::O => Color { r: 1.0, g: 1.0, b: 0.0, a: 1.0 },
+                    TetrominoType::T => Color { r: 0.6667, g: 0.0, b: 1.0, a: 1.0 },
+                    TetrominoType::S => Color { r: 0.0, g: 1.0, b: 0.0, a: 1.0 },
+                    TetrominoType::Z => Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
+                    TetrominoType::J => Color { r: 0.0, g: 0.0, b: 1.0, a: 1.0 },
+                    TetrominoType::L => Color { r: 1.0, g: 0.3334, b: 0.0, a: 1.0 },
+                    _ => WHITE,
+                },
                 t_type: piece_type,
             };
             // Draw a small preview on the left
             draw_preview(&t, stats_label_x, piece_y, 15.0);
             // Show the count on the right
             let count = self.piece_statistics.get(&piece_type).unwrap_or(&0);
-            draw_text(
-                &format!("{}", count),
-                stats_label_x + 50.0,
-                piece_y + 20.0,
-                20.0,
-                WHITE,
-            );
+            draw_text(&format!("{}", count), stats_label_x + 50.0, piece_y + 20.0, 20.0, WHITE);
         }
 
         // -- RIGHT SIDE: Next piece label & preview --
