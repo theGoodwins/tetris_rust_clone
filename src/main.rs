@@ -1,12 +1,55 @@
-mod sound;
+// main.rs
+
+mod menu;
 mod tetromino;
+mod sound;
 
 use macroquad::prelude::*;
 use ::rand::{rng, Rng};
 use std::cmp::{min, max};
 use std::collections::HashMap;
+use std::fs;
+use serde::{Deserialize, Serialize};
 use sound::MusicManager;
 use tetromino::{Tetromino, TetrominoType, rotate_shape, TETROMINO_SHAPES};
+use menu::{MainMenu, Difficulty, GameMode};
+
+// -------------------------------------------------------------------
+// Config persistence
+
+#[derive(Serialize, Deserialize)]
+pub struct Config {
+    pub player_name: String,
+    pub last_song: usize,
+    pub high_score: u32,
+    pub line_count: u32,
+    pub game_mode: String,
+}
+
+pub fn load_config() -> Config {
+    if let Ok(data) = fs::read_to_string("config.json") {
+        if let Ok(config) = serde_json::from_str(&data) {
+            return config;
+        }
+    }
+    // Default config if file doesn't exist or parsing fails.
+    Config {
+        player_name: "Player".to_string(),
+        last_song: 0,
+        high_score: 0,
+        line_count: 0,
+        game_mode: "Classic".to_string(),
+    }
+}
+
+pub fn save_config(config: &Config) {
+    if let Ok(json) = serde_json::to_string_pretty(config) {
+        let _ = fs::write("config.json", json);
+    }
+}
+
+// -------------------------------------------------------------------
+// Game constants
 
 const GRID_WIDTH: usize = 10;
 const GRID_HEIGHT: usize = 20;
@@ -26,14 +69,9 @@ const SILVER_COLOR: Color = Color::new(0.75, 0.75, 0.75, 1.0);
 const GOLD_POINTS: u32 = 500;
 const SILVER_POINTS: u32 = 200;
 
-// New scoring bonuses.
-const TETRIS_BONUS: u32 = 800;
-const FULL_BOARD_BONUS: u32 = 2000;
-
 // -------------------------------------------------------------------
-// The remaining game logic
+// Structures used by the game
 
-#[derive(Clone, Copy)]
 struct SquareEffect {
     x: usize,
     y: usize,
@@ -45,7 +83,7 @@ struct SquareEffect {
 }
 
 struct GameState {
-    // Each cell stores Option<(Color, TetrominoType, piece_id)>
+    // The game board: each cell is an optional tuple of (Color, TetrominoType, piece_id)
     board: [[Option<(Color, TetrominoType, u32)>; GRID_WIDTH]; GRID_HEIGHT],
     tetromino: Option<Tetromino>,
     next_tetromino: Option<Tetromino>,
@@ -68,15 +106,20 @@ struct GameState {
 
     active_squares: Vec<SquareEffect>,
 
-    next_piece_id: u32, // For unique locked piece tagging.
+    next_piece_id: u32, // Unique ID for each locked piece
 
     mus_mgr: MusicManager,
 
     // Statistics counter for spawned tetrominoes.
     piece_statistics: HashMap<TetrominoType, u32>,
 
-    // Pending bonus points from merged blocks; awarded when rows are cleared.
+    // Pending bonus points from merged blocks.
     merge_bonus_pending: u32,
+
+    // Fields passed in from the main menu.
+    player_name: String,
+    difficulty: Difficulty,
+    game_mode: GameMode,
 }
 
 impl GameState {
@@ -116,6 +159,9 @@ impl GameState {
             mus_mgr: MusicManager::new(),
             piece_statistics,
             merge_bonus_pending: 0,
+            player_name: "".to_string(),
+            difficulty: Difficulty::Normal,
+            game_mode: GameMode::Classic,
         }
     }
 
@@ -175,7 +221,6 @@ impl GameState {
         self.mus_mgr.play_song();
     }
 
-    // When a piece lands, check for merges first and then full rows.
     pub fn lock_tetromino(&mut self) {
         if let Some(tetro) = self.tetromino {
             let id = self.next_piece_id;
@@ -188,10 +233,8 @@ impl GameState {
                 }
             }
         }
-        // Check for merge (4x4 fully filled area) first.
         self.check_for_4x4_squares();
 
-        // Then check for full rows and accumulate bonus if merged blocks are present.
         let mut full_rows = Vec::new();
         self.merge_bonus_pending = 0;
         for (i, row) in self.board.iter().enumerate() {
@@ -239,18 +282,7 @@ impl GameState {
             new_board.insert(0, [None; GRID_WIDTH]);
         }
         self.board = new_board.try_into().unwrap();
-        let lines_cleared_now = self.clearing_lines.len() as u32;
-        self.lines_cleared += lines_cleared_now;
-
-        // Award Tetris bonus if exactly 4 lines are cleared simultaneously.
-        if lines_cleared_now == 4 {
-            self.score += TETRIS_BONUS;
-        }
-        // Award full board bonus if board is completely empty.
-        if self.board.iter().all(|row| row.iter().all(|cell| cell.is_none())) {
-            self.score += FULL_BOARD_BONUS;
-        }
-        // Award pending merge bonus points.
+        self.lines_cleared += self.clearing_lines.len() as u32;
         self.score += self.merge_bonus_pending;
         self.merge_bonus_pending = 0;
         self.clearing_lines.clear();
@@ -278,7 +310,7 @@ impl GameState {
             } else {
                 self.tetromino = Some(next_t);
                 *self.piece_statistics.entry(next_t.t_type).or_insert(0) += 1;
-                let mut rng = rng();
+                let mut rng = ::rand::rng();
                 let t_type = match rng.random_range(0..7) {
                     0 => TetrominoType::I,
                     1 => TetrominoType::O,
@@ -295,7 +327,6 @@ impl GameState {
         }
     }
 
-    // --- Merge Detection: Only complete tetrominoes (4 cells each) can form a merge block.
     pub fn check_for_4x4_squares(&mut self) {
         for y in 0..(GRID_HEIGHT - 3) {
             for x in 0..(GRID_WIDTH - 3) {
@@ -305,7 +336,6 @@ impl GameState {
                 for dy in 0..4 {
                     for dx in 0..4 {
                         if let Some(cell) = self.board[y + dy][x + dx] {
-                            // Do not merge bonus blocks.
                             if cell.1 == TetrominoType::BonusGold || cell.1 == TetrominoType::BonusSilver {
                                 all_filled = false;
                                 break;
@@ -333,7 +363,6 @@ impl GameState {
                 }
                 let mut candidate_valid = true;
                 for &pid in &pieces_in_region {
-                    // Ensure the tetromino with this id occupies exactly 4 cells.
                     let count = self
                         .board
                         .iter()
@@ -344,7 +373,6 @@ impl GameState {
                         candidate_valid = false;
                         break;
                     }
-                    // Ensure all cells for this tetromino are inside the candidate area.
                     for row in 0..GRID_HEIGHT {
                         for col in 0..GRID_WIDTH {
                             if let Some((_col, _t, id)) = self.board[row][col] {
@@ -400,13 +428,12 @@ impl GameState {
                     timer: 0.3,
                     flash_on: true,
                     blinks_remaining: 6,
-                    original: original,
+                    original,
                 });
             }
         }
     }
 
-    // Update the blinking effect (visual only).
     pub fn update_square_effects(&mut self, dt: f32) {
         self.active_squares.retain_mut(|eff| {
             eff.timer -= dt;
@@ -423,13 +450,8 @@ impl GameState {
 
     pub fn process_input(&mut self, delta: f32) {
         if is_key_pressed(KeyCode::Up) {
-            loop {
-                let can_move_down = if let Some(ref t) = self.tetromino {
-                    !self.check_collision(&t.shape, (t.pos.0, t.pos.1 + 1))
-                } else {
-                    false
-                };
-                if !can_move_down {
+            while let Some(ref t) = self.tetromino {
+                if self.check_collision(&t.shape, (t.pos.0, t.pos.1 + 1)) {
                     break;
                 }
                 if let Some(t) = self.tetromino.as_mut() {
@@ -616,31 +638,18 @@ impl GameState {
 
     pub fn draw(&mut self) {
         clear_background(BLACK_COLOR);
-
-        // If the game hasn't started, show "Press SPACE to start"
         if !self.started {
             self.mus_mgr.reset();
-            let msg = "Press SPACE to start";
-            let measure = measure_text(msg, None, 40, 1.0);
-            let x = (screen_width() - measure.width) / 2.0;
-            let y = (screen_height() - measure.height) / 2.0;
-            draw_text(msg, x, y, 40.0, YELLOW);
-            return;
         }
-
-        // Draw the main board background
         let board_w = GRID_WIDTH as f32 * TILE_SIZE;
         let board_h = GRID_HEIGHT as f32 * TILE_SIZE;
         let offset_x = (screen_width() - board_w) / 2.0;
         let offset_y = (screen_height() - board_h) / 2.0 - 50.0;
         draw_rectangle(offset_x, offset_y, board_w, board_h, GAME_AREA_COLOR);
-
-        // Draw locked pieces on the board
         for y in 0..GRID_HEIGHT {
             for x in 0..GRID_WIDTH {
                 if let Some((color, _t, _id)) = self.board[y][x] {
                     let mut draw_color = color;
-                    // If it's in an active 4x4 square effect, apply the blinking effect
                     for eff in &self.active_squares {
                         if x >= eff.x && x < eff.x + 4 && y >= eff.y && y < eff.y + 4 {
                             let rel_x = x - eff.x;
@@ -659,8 +668,6 @@ impl GameState {
                 }
             }
         }
-
-        // Draw the "ghost" piece (projection)
         if let Some(curr) = self.tetromino {
             let mut ghost = curr;
             let mut iter = 0;
@@ -676,8 +683,6 @@ impl GameState {
                 let py = offset_y + y as f32 * TILE_SIZE;
                 draw_rectangle(px, py, TILE_SIZE, TILE_SIZE, ghost_color);
             }
-
-            // Draw the active falling piece
             for &[dx, dy] in &curr.shape {
                 let x = curr.pos.0 + dx;
                 let y = curr.pos.1 + dy;
@@ -686,8 +691,6 @@ impl GameState {
                 draw_snes_block(px, py, TILE_SIZE, curr.color);
             }
         }
-
-        // If lines are clearing, flash them
         draw_rectangle(offset_x, offset_y, board_w, TILE_SIZE * 2.0, BLACK_COLOR);
         if self.line_clear_timer > 0.0 {
             let frames = (self.line_clear_timer * 60.0) as i32;
@@ -698,21 +701,36 @@ impl GameState {
                 draw_rectangle(offset_x, py, board_w, TILE_SIZE, flash_color);
             }
         }
-
-        // Lines and Score on the right side
         draw_text(&format!("Lines: {}", self.lines_cleared), screen_width() - 210.0, 170.0, 40.0, WHITE);
         draw_text(&format!("Score: {}", self.score), screen_width() - 210.0, 220.0, 40.0, WHITE);
-
-        // Game Over message
         if self.game_over {
+            draw_rectangle(0.0, 0.0, screen_width(), screen_height(), Color::new(0.0, 0.0, 0.0, 0.8));
             let msg = "Game Over";
             let measure = measure_text(msg, None, 50, 1.0);
-            let x = offset_x + (board_w - measure.width) / 2.0;
-            let y = offset_y + board_h / 2.0;
+            let x = (screen_width() - measure.width) / 2.0;
+            let y = (screen_height() / 2.0) - 50.0;
             draw_text(msg, x, y, 50.0, RED);
+        
+            let score_text = format!("Your Score: {}", self.score);
+            let measure_score = measure_text(&score_text, None, 30, 1.0);
+            let sx = (screen_width() - measure_score.width) / 2.0;
+            let sy = y + 50.0;
+            draw_text(&score_text, sx, sy, 30.0, WHITE);
+        
+            let config = load_config();
+            let high_text = format!("GameMode: {}, High Score: {}, Lines: {}, {}",
+                                      config.game_mode, config.high_score, config.line_count, config.player_name);
+            let measure_high = measure_text(&high_text, None, 30, 1.0);
+            let hx = (screen_width() - measure_high.width) / 2.0;
+            let hy = sy + 50.0;
+            draw_text(&high_text, hx, hy, 30.0, YELLOW);
+        
+            let prompt = "Press Enter to return to menu";
+            let measure_prompt = measure_text(prompt, None, 30, 1.0);
+            let px = (screen_width() - measure_prompt.width) / 2.0;
+            let py = hy + 50.0;
+            draw_text(prompt, px, py, 30.0, GRAY);
         }
-
-        // Pause overlay
         if self.paused {
             draw_rectangle(0.0, 0.0, screen_width(), screen_height(), Color::new(0.0, 0.0, 0.0, 0.6));
             let msg = "Paused";
@@ -723,12 +741,9 @@ impl GameState {
         if let Some(ref hold_piece) = self.hold_tetromino {
             draw_preview(hold_piece, 79.0, 90.0, PREVIEW_TILE_SIZE);
         }
-
-        // Draw the piece statistics under the hold piece
         let stats_label_x = 79.0;
         let stats_label_y = 200.0;
         draw_text("Piece Stats", stats_label_x, stats_label_y, 30.0, WHITE);
-
         let stat_types = [
             TetrominoType::I,
             TetrominoType::O,
@@ -738,39 +753,17 @@ impl GameState {
             TetrominoType::J,
             TetrominoType::L,
         ];
-
-        // Each piece gets a small preview plus its count
         for (i, &piece_type) in stat_types.iter().enumerate() {
             let piece_y = stats_label_y + 40.0 + (i as f32 * 50.0);
-            let t = Tetromino {
-                shape: TETROMINO_SHAPES[piece_type as usize],
-                pos: (0, 0),
-                color: match piece_type {
-                    TetrominoType::I => Color { r: 0.0, g: 1.0, b: 1.0, a: 1.0 },
-                    TetrominoType::O => Color { r: 1.0, g: 1.0, b: 0.0, a: 1.0 },
-                    TetrominoType::T => Color { r: 0.6667, g: 0.0, b: 1.0, a: 1.0 },
-                    TetrominoType::S => Color { r: 0.0, g: 1.0, b: 0.0, a: 1.0 },
-                    TetrominoType::Z => Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
-                    TetrominoType::J => Color { r: 0.0, g: 0.0, b: 1.0, a: 1.0 },
-                    TetrominoType::L => Color { r: 1.0, g: 0.3334, b: 0.0, a: 1.0 },
-                    _ => WHITE,
-                },
-                t_type: piece_type,
-            };
-            // Draw a small preview on the left
+            let t = Tetromino::new(piece_type);
             draw_preview(&t, stats_label_x, piece_y, 15.0);
-            // Show the count on the right
             let count = self.piece_statistics.get(&piece_type).unwrap_or(&0);
             draw_text(&format!("{}", count), stats_label_x + 50.0, piece_y + 20.0, 20.0, WHITE);
         }
-
-        // -- RIGHT SIDE: Next piece label & preview --
         draw_text("Next", screen_width() - 210.0, 55.0, 40.0, WHITE);
         if let Some(ref next_piece) = self.next_tetromino {
             draw_preview(next_piece, screen_width() - 218.0, 70.0, PREVIEW_TILE_SIZE);
         }
-
-        // Controls text at the bottom
         let controls_text = "\
 Controls:
  Left/Right: Move
@@ -876,16 +869,48 @@ fn draw_preview(tetromino: &Tetromino, pos_x: f32, pos_y: f32, tile_size: f32) {
 
 #[macroquad::main("Tetris")]
 async fn main() {
-    // Optionally, set the window size:
     request_new_screen_size(1410.0, 700.0);
+    let mut in_menu = true;
+    let mut main_menu = MainMenu::new();
     let mut game_state = GameState::new();
-
+    let mut game_over_screen_active = false;
+    
     loop {
-        if is_key_pressed(KeyCode::Space) && !game_state.started {
-            game_state.start_game();
+        clear_background(BLACK);
+    
+        if in_menu {
+            if main_menu.update(true) {
+                game_state = GameState::new();
+                game_state.player_name = main_menu.player_name.clone();
+                game_state.difficulty = main_menu.difficulty;
+                game_state.game_mode = main_menu.game_mode;
+                game_state.mus_mgr.mus_track = main_menu.music_index as u32;
+                game_state.start_game();
+                in_menu = false;
+                game_over_screen_active = false;
+            }
+            main_menu.draw();
+        } else {
+            game_state.update();
+            game_state.draw();
+            
+            if game_state.game_over {
+                game_over_screen_active = true;
+            }
+    
+            if game_over_screen_active {
+                if is_key_pressed(KeyCode::Enter) {
+                    // Save the last player's name to the config
+                    let mut config = load_config();
+                    config.player_name = game_state.player_name.clone();
+                    save_config(&config);
+    
+                    in_menu = true;
+                    main_menu = MainMenu::new();
+                    game_over_screen_active = false;
+                }
+            }
         }
-        game_state.update();
-        game_state.draw();
         next_frame().await;
     }
 }
