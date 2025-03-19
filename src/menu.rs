@@ -1,6 +1,10 @@
-use macroquad::prelude::*;
-use crate::load_config;
+//! Module for the main menu of the Tetris game.
+//! Handles user input for game configuration such as player name, music, difficulty, and game mode.
 
+use crate::load_config;
+use macroquad::prelude::*;
+
+/// Enumeration for game difficulty levels.
 #[derive(Clone, Copy)]
 pub enum Difficulty {
     Easy,
@@ -9,6 +13,7 @@ pub enum Difficulty {
 }
 
 impl Difficulty {
+    /// Returns the next difficulty level.
     pub fn next(self) -> Difficulty {
         match self {
             Difficulty::Easy => Difficulty::Normal,
@@ -16,6 +21,7 @@ impl Difficulty {
             Difficulty::Hard => Difficulty::Easy,
         }
     }
+    /// Returns the previous difficulty level.
     pub fn prev(self) -> Difficulty {
         match self {
             Difficulty::Easy => Difficulty::Hard,
@@ -23,6 +29,7 @@ impl Difficulty {
             Difficulty::Hard => Difficulty::Normal,
         }
     }
+    /// Returns the difficulty level as a string.
     pub fn as_str(self) -> &'static str {
         match self {
             Difficulty::Easy => "Easy",
@@ -32,6 +39,7 @@ impl Difficulty {
     }
 }
 
+/// Enumeration for game modes.
 #[derive(Clone, Copy)]
 pub enum GameMode {
     Classic,
@@ -40,6 +48,7 @@ pub enum GameMode {
 }
 
 impl GameMode {
+    /// Returns the next game mode.
     pub fn next(self) -> GameMode {
         match self {
             GameMode::Classic => GameMode::Timed,
@@ -47,6 +56,7 @@ impl GameMode {
             GameMode::Endless => GameMode::Classic,
         }
     }
+    /// Returns the previous game mode.
     pub fn prev(self) -> GameMode {
         match self {
             GameMode::Classic => GameMode::Endless,
@@ -54,6 +64,7 @@ impl GameMode {
             GameMode::Endless => GameMode::Timed,
         }
     }
+    /// Returns the game mode as a string.
     pub fn as_str(self) -> &'static str {
         match self {
             GameMode::Classic => "Classic",
@@ -63,6 +74,7 @@ impl GameMode {
     }
 }
 
+/// Structure representing the main menu state.
 pub struct MainMenu {
     pub selected_index: usize, // 0: Player Name, 1: Music, 2: Difficulty, 3: Game Mode, 4: Start Game
     pub player_name: String,
@@ -76,6 +88,7 @@ pub struct MainMenu {
 }
 
 impl MainMenu {
+    /// Creates a new main menu with default values loaded from configuration.
     pub fn new() -> Self {
         let config = load_config();
 
@@ -92,10 +105,11 @@ impl MainMenu {
         }
     }
 
+    /// Updates the menu based on user input.
     /// Returns true if "Start Game" is activated.
     pub fn update(&mut self, in_menu: bool) -> bool {
         if !in_menu {
-            return false; // Do not process menu input if the game is running
+            return false; // Do not process menu input if the game is running.
         }
 
         if is_key_pressed(KeyCode::Up) {
@@ -112,7 +126,7 @@ impl MainMenu {
         if self.selected_index == 1 {
             if is_key_pressed(KeyCode::Left) {
                 if self.music_index == 0 {
-                    self.music_index = 2; // assuming 3 tracks (0, 1, 2)
+                    self.music_index = 2; // Assuming 3 tracks (0, 1, 2).
                 } else {
                     self.music_index -= 1;
                 }
@@ -138,20 +152,18 @@ impl MainMenu {
             }
         }
 
-        // Only allow name input when the name field is selected
+        // Process name input when the player name field is selected.
         if self.selected_index == 0 {
             if is_key_pressed(KeyCode::Backspace) {
                 self.player_name.pop();
             }
-            // Process all characters pressed this frame.
             while let Some(c) = get_char_pressed() {
                 if c.is_alphanumeric() || c == ' ' {
                     self.player_name.push(c);
                 }
             }
         }
-        // If "Start Game" is selected and Enter is pressed, return true.
-
+        // If "Start Game" is selected and Enter is pressed, start the game.
         if self.selected_index == 4 && is_key_pressed(KeyCode::Enter) {
             return true;
         }
@@ -159,13 +171,13 @@ impl MainMenu {
         false
     }
 
+    /// Draws the main menu on screen.
     pub fn draw(&self) {
         let start_x = screen_width() / 2.0 - 200.0;
-        // Shift up slightly to display the saved config at the top.
         let mut start_y = screen_height() / 2.0 - 200.0;
         let spacing = 50.0;
 
-        // Display saved configuration: GameMode, high score, line count, and player name.
+        // Display saved configuration.
         let config_text = format!(
             "GameMode: {}, High Score: {}, Lines: {}, {}",
             self.high_game_mode, self.high_score, self.high_line_count, self.high_score_player
@@ -191,7 +203,6 @@ impl MainMenu {
         draw_text(&music_text, start_x, start_y, 30.0, color);
         start_y += spacing;
 
-        // Option 2: Difficulty
         let diff_text = format!("Difficulty: {}", self.difficulty.as_str());
         let color = if self.selected_index == 2 {
             YELLOW
@@ -201,7 +212,6 @@ impl MainMenu {
         draw_text(&diff_text, start_x, start_y, 30.0, color);
         start_y += spacing;
 
-        // Option 3: Game Mode
         let mode_text = format!("Game Mode: {}", self.game_mode.as_str());
         let color = if self.selected_index == 3 {
             YELLOW
@@ -211,7 +221,6 @@ impl MainMenu {
         draw_text(&mode_text, start_x, start_y, 30.0, color);
         start_y += spacing;
 
-        // Option 4: Start Game
         let start_text = "Start Game";
         let color = if self.selected_index == 4 {
             YELLOW
@@ -220,9 +229,7 @@ impl MainMenu {
         };
         draw_text(start_text, start_x, start_y, 30.0, color);
 
-        // Extra instructions for editing player name.
         if self.selected_index == 0 {
-            draw_text("Type to change name. Backspace to delete.", start_x, start_y + 40.0, 20.0, GRAY);
             draw_text(
                 "Type to change name. Backspace to delete.",
                 start_x,

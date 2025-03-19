@@ -1,5 +1,8 @@
+//! Module defining tetromino shapes, rotations, and colors for the Tetris game.
+
 use macroquad::prelude::*;
 
+/// Enumeration of tetromino types.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TetrominoType {
     I,
@@ -13,6 +16,7 @@ pub enum TetrominoType {
     BonusSilver,
 }
 
+/// Default tetromino shapes.
 pub const TETROMINO_SHAPES: [[[i32; 2]; 4]; 7] = [
     [[0, 0], [1, 0], [2, 0], [3, 0]], // I
     [[0, 0], [1, 0], [0, 1], [1, 1]], // O
@@ -23,6 +27,7 @@ pub const TETROMINO_SHAPES: [[[i32; 2]; 4]; 7] = [
     [[0, 0], [1, 0], [2, 0], [0, 1]], // L
 ];
 
+/// Rotation offsets for tetrominoes.
 pub const TETROMINO_ROTATION_OFFSETS: [[i32; 2]; 7] = [
     [1, 0], // I
     [0, 0], // O (doesn't rotate)
@@ -33,16 +38,53 @@ pub const TETROMINO_ROTATION_OFFSETS: [[i32; 2]; 7] = [
     [1, 1], // L
 ];
 
+/// NES-inspired colors for tetrominoes.
 pub const NES_COLORS: [Color; 7] = [
-    Color { r: 0.0,    g: 1.0,    b: 1.0,    a: 1.0 }, // I
-    Color { r: 1.0,    g: 1.0,    b: 0.0,    a: 1.0 }, // O
-    Color { r: 0.6667, g: 0.0,    b: 1.0,    a: 1.0 }, // T
-    Color { r: 0.0,    g: 1.0,    b: 0.0,    a: 1.0 }, // S
-    Color { r: 1.0,    g: 0.0,    b: 0.0,    a: 1.0 }, // Z
-    Color { r: 0.0,    g: 0.0,    b: 1.0,    a: 1.0 }, // J
-    Color { r: 1.0,    g: 0.3334, b: 0.0,    a: 1.0 }, // L
+    Color {
+        r: 0.0,
+        g: 1.0,
+        b: 1.0,
+        a: 1.0,
+    }, // I
+    Color {
+        r: 1.0,
+        g: 1.0,
+        b: 0.0,
+        a: 1.0,
+    }, // O
+    Color {
+        r: 0.6667,
+        g: 0.0,
+        b: 1.0,
+        a: 1.0,
+    }, // T
+    Color {
+        r: 0.0,
+        g: 1.0,
+        b: 0.0,
+        a: 1.0,
+    }, // S
+    Color {
+        r: 1.0,
+        g: 0.0,
+        b: 0.0,
+        a: 1.0,
+    }, // Z
+    Color {
+        r: 0.0,
+        g: 0.0,
+        b: 1.0,
+        a: 1.0,
+    }, // J
+    Color {
+        r: 1.0,
+        g: 0.3334,
+        b: 0.0,
+        a: 1.0,
+    }, // L
 ];
 
+/// Structure representing a tetromino piece.
 #[derive(Clone, Copy)]
 pub struct Tetromino {
     pub shape: [[i32; 2]; 4],
@@ -52,6 +94,7 @@ pub struct Tetromino {
 }
 
 impl Tetromino {
+    /// Creates a new tetromino of the given type.
     pub fn new(t_type: TetrominoType) -> Self {
         Tetromino {
             shape: TETROMINO_SHAPES[t_type as usize],
@@ -62,7 +105,16 @@ impl Tetromino {
     }
 }
 
-pub fn rotate_shape(shape: &[[i32; 2]; 4], t_type: TetrominoType, clockwise: bool) -> [[i32; 2]; 4] {
+/// Rotates the given tetromino shape.
+/// - `shape`: The current shape coordinates.
+/// - `t_type`: The type of the tetromino.
+/// - `clockwise`: If true, rotates clockwise; otherwise, counter-clockwise.
+/// Returns the new rotated shape.
+pub fn rotate_shape(
+    shape: &[[i32; 2]; 4],
+    t_type: TetrominoType,
+    clockwise: bool,
+) -> [[i32; 2]; 4] {
     let mut new_shape = [[0; 2]; 4];
     let [pivot_x, pivot_y] = TETROMINO_ROTATION_OFFSETS[t_type as usize];
     for (i, &[x, y]) in shape.iter().enumerate() {
