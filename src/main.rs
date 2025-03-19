@@ -289,13 +289,29 @@ impl GameState {
         self.mus_mgr.pause();
     }
 
-    /// Processes the hold action.
     pub fn process_hold_input(&mut self) {
-        if !self.hold_used {
+        // Prevent holding more than once per tetromino drop.
+        if self.hold_used {
+            return;
+        }
+    
+        // Only proceed if there's a current tetromino.
+        if let Some(current) = self.tetromino.take() {
+            if let Some(mut held) = self.hold_tetromino.take() {
+                // Swap: reset the held piece's position to the spawn coordinates.
+                held.pos = (GRID_WIDTH as i32 / 2 - 2, 0);
+                self.tetromino = Some(held);
+                self.hold_tetromino = Some(current);
+            } else {
+                // No piece in hold: store the current piece and spawn a new one.
+                self.hold_tetromino = Some(current);
+                self.spawn_new_tetromino();
+            }
             self.hold_used = true;
-            // (Hold logic simplified; swapping could be implemented here)
         }
     }
+    
+    
 
     // --- Fallback keyboard input (if no gamepad events are detected) ---
     pub fn process_input(&mut self, delta: f32) {
@@ -591,7 +607,7 @@ impl GameState {
             }
             return;
         }
-        self.process_input(dt);
+       
         if let Some(curr) = self.tetromino {
             let speed = if is_key_down(KeyCode::Down) { SOFT_DROP_SPEED } else { FALL_SPEED };
             let fall_interval = 1.0 / speed;
@@ -889,14 +905,21 @@ async fn main() {
             if game_over_screen_active {
                 if is_key_pressed(KeyCode::Enter) {
                     let mut config = load_config();
+                    // Update high score if the current score is higher.
+                    if game_state.score > config.high_score {
+                        config.high_score = game_state.score;
+                    }
+                    // Optionally, update the line count or other stats.
+                    config.line_count += game_state.lines_cleared;
                     config.player_name = game_state.player_name.clone();
                     save_config(&config);
-    
+            
                     in_menu = true;
                     main_menu = MainMenu::new();
                     game_over_screen_active = false;
                 }
             }
+            
         }
         next_frame().await;
     }
