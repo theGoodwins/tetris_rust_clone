@@ -1,5 +1,8 @@
-use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink};
+//! Module for handling audio playback, including music and sound effects.
+//! Uses the `rodio` crate to decode and play embedded audio files.
+
 use rodio::source::Source;
+use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink};
 use std::io::Cursor;
 
 // -------------------------------------------------------------------
@@ -15,7 +18,7 @@ const LOCK: &[u8] = include_bytes!("../resources/sfx/lock.wav");
 const PAUSE: &[u8] = include_bytes!("../resources/sfx/pause.wav");
 const LINE: &[u8] = include_bytes!("../resources/sfx/line.wav");
 
-// Music list now contains a tuple of song as bytes and the panic mode speed factor.
+// Music list now contains a tuple of song bytes and the panic mode speed factor.
 const MUSIC_LIST: [(&[u8], f32); 3] = [(MUSIC_A_GB, 1.5), (MUSIC_A, 2.0), (MUSIC_B, 1.25)];
 const SFX_LIST: [&[u8]; 6] = [ROT, MOV, DROP, LOCK, PAUSE, LINE];
 
@@ -32,6 +35,7 @@ pub struct MusicManager {
 }
 
 impl MusicManager {
+    /// Creates a new music manager with initialized audio streams.
     pub fn new() -> Self {
         let (stream, stream_handle) = OutputStream::try_default().unwrap();
         let mscsink = Sink::try_new(&stream_handle).unwrap();
@@ -53,42 +57,32 @@ impl MusicManager {
         }
     }
 
+    /// Plays the current music track in a loop.
     pub fn play_song(&mut self) {
-        // Clear the current sink's buffer.
         self.mus_sink.clear();
-        // Determine the current track from the embedded MUSIC_LIST.
-        let track_index = (self.mus_track % MUSIC_LIST.len() as u32) as usize;
-        let track_data = MUSIC_LIST[track_index].0;
-        // Create an in-memory cursor for the embedded audio data.
-        let cursor = Cursor::new(track_data);
-        // Decode the audio data and set it to repeat infinitely.
-        let source = Decoder::new(cursor).unwrap().repeat_infinite();
-        // Append the source into the sink and set volume.
+        let track_index: usize = (self.mus_track % MUSIC_LIST.len() as u32) as usize;
+        let track_data: &[u8] = MUSIC_LIST[track_index].0;
+        let cursor: Cursor<&[u8]> = Cursor::new(track_data);
+        let source: rodio::source::Repeat<Decoder<Cursor<&[u8]>>> =
+            Decoder::new(cursor).unwrap().repeat_infinite();
         self.mus_sink.append(source);
-        // Check if muted, if not, play at half volume because the tracks are kinda loud.
         if !self.muted {
             self.mus_sink.set_volume(0.5);
         }
         self.mus_sink.play();
-        // Check if in panic, set speed accordingly.
         if self.panic {
             self.mus_sink.set_speed(MUSIC_LIST[track_index].1);
         }
-        // Iterate the track.
         self.mus_track += 1;
     }
 
+    /// Plays a sound effect identified by `sfx_id`.
     pub fn play_sfx(&mut self, sfx_id: u32) {
-        // Clear the current sink's buffer.
         self.sfx_sinks[0].clear();
-        // Determine the current track from the embedded SFX_LIST.
-        let track_index = (sfx_id % SFX_LIST.len() as u32) as usize;
-        let track_data = SFX_LIST[track_index];
-        // Create an in-memory cursor for the embedded audio data.
-        let cursor = Cursor::new(track_data);
-        // Decode the audio data.
-        let source = Decoder::new(cursor).unwrap();
-        // Append the source into the sink and set volume.
+        let track_index: usize = (sfx_id % SFX_LIST.len() as u32) as usize;
+        let track_data: &[u8] = SFX_LIST[track_index];
+        let cursor: Cursor<&[u8]> = Cursor::new(track_data);
+        let source: Decoder<Cursor<&[u8]>> = Decoder::new(cursor).unwrap();
         self.sfx_sinks[0].append(source);
         if !self.muted {
             self.sfx_sinks[0].set_volume(0.5);
@@ -96,9 +90,10 @@ impl MusicManager {
         self.sfx_sinks[0].play();
     }
 
+    /// Toggles the panic mode, which adjusts the music playback speed.
     pub fn toggle_panic(&mut self) {
         self.panic = !self.panic;
-        let track_index = ((self.mus_track - 1) % MUSIC_LIST.len() as u32) as usize;
+        let track_index: usize = ((self.mus_track - 1) % MUSIC_LIST.len() as u32) as usize;
         if self.panic {
             self.mus_sink.set_speed(MUSIC_LIST[track_index].1);
         } else {
@@ -106,6 +101,7 @@ impl MusicManager {
         }
     }
 
+    /// Mutes or unmutes the audio.
     pub fn mute(&mut self) {
         if self.muted {
             self.mus_sink.set_volume(0.5);
@@ -117,6 +113,7 @@ impl MusicManager {
         self.muted = !self.muted;
     }
 
+    /// Pauses or resumes the music.
     pub fn pause(&mut self) {
         if self.paused {
             self.mus_sink.play();
@@ -126,6 +123,7 @@ impl MusicManager {
         self.paused = !self.paused;
     }
 
+    /// Resets the music manager to its initial state.
     pub fn reset(&mut self) {
         self.mus_sink.clear();
         self.sfx_sinks[0].clear();
